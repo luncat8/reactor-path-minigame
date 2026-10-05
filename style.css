@@ -26,7 +26,7 @@ canvas { display: block; width: 100%; aspect-ratio: 800 / 650; touch-action: non
 .legend span { display: flex; align-items: center; gap: 7px; }
 .line { width: 16px; height: 1px; display: inline-block; }.cyan { background: var(--cyan); }.white { background: #edf9f4; }
 .zone { width: 9px; height: 9px; border: 1px solid #c88b61; border-radius: 50%; }
-#guide-legend { display: none; }#guide-legend.visible { display: flex; }#guide-legend .line { background: #f3bd72; }
+#guide-legend { display: none; }#guide-legend.visible { display: flex; }#guide-legend .line { background: #f3bd72; }#guide-legend .line.live { background: #ffffff; margin-left: 4px; }
 .transport { display: flex; align-items: center; gap: 8px; padding: 15px 18px; border-top: 1px solid var(--line); }
 .transport span { margin-left: auto; font: 9px monospace; color: #60797d; }
 button { font: 11px 'Segoe UI', sans-serif; color: #c1d1d2; background: #1a272c; border: 1px solid #35474b; border-radius: 4px; padding: 8px 13px; cursor: pointer; }

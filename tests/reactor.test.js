@@ -105,7 +105,7 @@ test('guidance is a bounded acceleration gated by forward direction', () => {
 	assert.ok(effect(86.6, 50) > 0, 'partly aligned motion may receive a guide force');
 });
 
-test('trajectory guidance aims at the look-ahead node from the single nearest node', () => {
+test('guidance aims at the look-ahead node, corrected for the beam coast', () => {
 	const sim = new Reactor();
 	sim.magnets.forEach(magnet => { magnet.strength = 0; });
 	sim.reflectors.length = 0;
@@ -113,41 +113,74 @@ test('trajectory guidance aims at the look-ahead node from the single nearest no
 	const particle = { x: 10, y: 10, vx: 100, vy: 0 };
 	const force = sim.guidanceVector(particle, guide, 1);
 	assert.ok(force.x > 0 && force.y < 0);
-	near(force.y / force.x, -0.25);
+	// Aim node is 40 px ahead; the beam coasts 10 px, leaving a (30, -10) correction.
+	near(force.y / force.x, -1 / 3);
 
 	sim.guideLookahead = 200;
 	const fartherTarget = sim.guidanceVector(particle, guide, 1);
-	near(fartherTarget.y / fartherTarget.x, -0.125);
+	// Aim node is 80 px ahead; the beam coasts 20 px, leaving a (60, -10) correction.
+	near(fartherTarget.y / fartherTarget.x, -1 / 6);
+});
+
+test('guidance is cross-track: a tracking beam feels no push, an offset beam is pulled back', () => {
+	const sim = new Reactor();
+	sim.magnets.forEach(magnet => { magnet.strength = 0; });
+	sim.reflectors.length = 0;
+	// Straight path sampled at 40 Hz, advancing 10 px (400 px/s) per step.
+	const guide = { count: 41, x: Float64Array.from({ length: 41 }, (_, i) => i * 10), y: new Float64Array(41) };
+	const tracking = sim.guidanceVector({ x: 100, y: 0, vx: 400, vy: 0 }, guide, 1);
+	assert.ok(Math.hypot(tracking.x, tracking.y) < 1e-6, 'a beam already on the path feels almost no force');
+	const offset = sim.guidanceVector({ x: 100, y: 30, vx: 400, vy: 0 }, guide, 1);
+	assert.ok(offset.y < 0, 'an offset beam is pulled back toward the path');
+	assert.ok(Math.abs(offset.x) < Math.abs(offset.y), 'the correction is lateral, not forward thrust');
+});
+
+test('nearest-node selection prefers the forward segment at a self-crossing', () => {
+	const sim = new Reactor();
+	// Two segments cross near the beam. The returning (−x) node is physically closest, but a
+	// beam heading +x must lock onto the forward (+x) node; a perpendicular beam has no forward
+	// node and falls back to the closest.
+	const guide = {
+		count: 7,
+		x: Float64Array.from([0, 10, 20, 20, 10, 0, -10]),
+		y: Float64Array.from([3, 3, 3, 0, 0, 0, 0])
+	};
+	assert.equal(sim.nearestNode({ x: 0, y: 1, vx: 100, vy: 0 }, guide), 0);
+	assert.equal(sim.nearestNode({ x: 0, y: 1, vx: 0, vy: 100 }, guide), 5);
 });
 
 test('distance and direction falloffs gate guidance smoothly', () => {
 	const sim = new Reactor();
 	const guide = { count: 11, x: Float64Array.from({ length: 11 }, (_, i) => i * 10), y: new Float64Array(11) };
-	const forceAt = (y, vx, vy) => sim.guidanceVector({ x: 10, y, vx, vy }, guide, 1);
-	const onPath = { ...forceAt(0, 100, 0) };
-	const halfway = { ...forceAt(50, 100, 0) };
-	assert.ok(Math.hypot(halfway.x, halfway.y) > 0);
-	assert.ok(Math.hypot(halfway.x, halfway.y) < Math.hypot(onPath.x, onPath.y));
+	const forceAt = (y, vx, vy) => { const f = sim.guidanceVector({ x: 10, y, vx, vy }, guide, 1); return { x: f.x, y: f.y }; };
+	const mag = f => Math.hypot(f.x, f.y);
+
+	// On the line but slower than the path advances: a pure forward catch-up correction.
+	const onPath = forceAt(0, 100, 0);
+	assert.ok(mag(onPath) > 0 && onPath.y === 0);
+	// Distance fade: the pull shrinks toward the reach and vanishes exactly at it.
+	assert.ok(mag(forceAt(90, 100, 0)) < mag(onPath));
 	assert.deepEqual(forceAt(100, 100, 0), { x: 0, y: 0 });
 
-	const halfAngle = forceAt(10, Math.SQRT1_2 * 100, Math.SQRT1_2 * 100);
-	near(Math.hypot(halfAngle.x, halfAngle.y), Math.hypot(forceAt(10, 100, 0).x, forceAt(10, 100, 0).y) * 0.5);
+	// Direction fade: perpendicular and opposed headings receive nothing.
 	assert.deepEqual(forceAt(10, 0, 100), { x: 0, y: 0 });
 	assert.deepEqual(forceAt(10, -100, 0), { x: 0, y: 0 });
+	const halfAngle = forceAt(10, Math.SQRT1_2 * 100, Math.SQRT1_2 * 100);
+	assert.ok(mag(halfAngle) > 0 && mag(halfAngle) < mag(forceAt(10, 100, 0)));
 
 	sim.guideDirection = 45;
 	assert.deepEqual(forceAt(10, Math.SQRT1_2 * 100, Math.SQRT1_2 * 100), { x: 0, y: 0 });
 });
 
-test('forecast guidance is delayed for two seconds and fades in smoothly over one', () => {
-	near(guidanceRamp(0), 0); near(guidanceRamp(2), 0);
-	near(guidanceRamp(2.5), 0.5); near(guidanceRamp(3), 1); near(guidanceRamp(14), 1);
+test('forecast guidance is delayed and fades in smoothly', () => {
+	near(guidanceRamp(0), 0); near(guidanceRamp(4), 0);
+	near(guidanceRamp(4.5), 0.5); near(guidanceRamp(5), 1); near(guidanceRamp(14), 1);
 	const sim = new Reactor();
 	sim.predict();
-	for (let i = 0; i <= 80; i++) {
+	for (let i = 0; i <= 160; i++) {
 		near(sim.path.forceX[i], 0); near(sim.path.forceY[i], 0);
 	}
-	assert.ok(Math.hypot(sim.path.forceX[120], sim.path.forceY[120]) > 0, 'force is active by the three-second mark');
+	assert.ok(Math.hypot(sim.path.forceX[200], sim.path.forceY[200]) > 0, 'force is active by the five-second mark');
 });
 
 test('long runs remain finite and bounded across field settings', () => {

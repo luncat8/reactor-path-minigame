@@ -198,20 +198,37 @@
 
 	function circle(x, y, radius) { ctx.beginPath(); ctx.arc(x, y, radius, 0, TAU); }
 	function line(ax, ay, bx, by) { ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); }
+	function arrow(x, y, ux, uy, length, head) {
+		const tipX = x + ux * length, tipY = y + uy * length;
+		line(x, y, tipX, tipY);
+		line(tipX, tipY, tipX - ux * head - uy * head * 0.6, tipY - uy * head + ux * head * 0.6);
+		line(tipX, tipY, tipX - ux * head + uy * head * 0.6, tipY - uy * head - ux * head * 0.6);
+	}
 	function drawGuidanceVectors() {
 		if (!ui.debugGuidance.checked) return;
-		ctx.save(); ctx.strokeStyle = '#f3bd72'; ctx.fillStyle = '#f3bd72'; ctx.lineWidth = 1.2;
+		ctx.save(); ctx.strokeStyle = '#f3bd72'; ctx.fillStyle = '#f3bd72'; ctx.lineWidth = 1.3;
 		for (let i = 20; i < sim.path.count; i += 20) {
-			const fx = sim.path.forceX[i], fy = sim.path.forceY[i];
-			const magnitude = Math.hypot(fx, fy);
+			const magnitude = Math.hypot(sim.path.forceX[i], sim.path.forceY[i]);
 			if (magnitude < 0.08) continue;
-			const length = Math.min(16, Math.max(4, magnitude * 0.32));
-			const ux = fx / magnitude, uy = fy / magnitude;
-			const x = sim.path.x[i], y = sim.path.y[i];
-			const tipX = x + ux * length, tipY = y + uy * length;
-			line(x, y, tipX, tipY);
-			line(tipX, tipY, tipX - ux * 3.5 - uy * 2, tipY - uy * 3.5 + ux * 2);
-			line(tipX, tipY, tipX - ux * 3.5 + uy * 2, tipY - uy * 3.5 - ux * 2);
+			const length = Math.min(42, Math.max(14, magnitude * 4));
+			arrow(sim.path.x[i], sim.path.y[i], sim.path.forceX[i] / magnitude, sim.path.forceY[i] / magnitude, length, 4);
+		}
+		ctx.restore();
+	}
+	function drawLiveGuidance() {
+		if (!ui.debugGuidance.checked) return;
+		const d = sim.liveDebug;
+		if (sim.guideStrength <= 0 || sim.guideDistance <= 0 || sim.guideDirection <= 0 || d.nearest < 0) return;
+		ctx.save();
+		// Hollow ring: nearest forecast node. Filled dot: the look-ahead node it aims at.
+		circle(d.nx, d.ny, 5.5); ctx.strokeStyle = '#f3bd72'; ctx.lineWidth = 1.3; ctx.stroke();
+		circle(d.tx, d.ty, 3); ctx.fillStyle = '#f3bd72'; ctx.fill();
+		// White arrow: the acceleration actually pulling the live beam right now.
+		const magnitude = Math.hypot(sim.liveForce.x, sim.liveForce.y);
+		if (magnitude > 0.02) {
+			const length = Math.min(70, Math.max(20, magnitude * 8));
+			ctx.strokeStyle = '#ffffff'; ctx.fillStyle = '#ffffff'; ctx.lineWidth = 1.9;
+			arrow(sim.particle.x, sim.particle.y, sim.liveForce.x / magnitude, sim.liveForce.y / magnitude, length, 5.5);
 		}
 		ctx.restore();
 	}
@@ -279,6 +296,7 @@
 		circle(sim.particle.x, sim.particle.y, 11); ctx.fillStyle = '#afffe419'; ctx.fill();
 		circle(sim.particle.x, sim.particle.y, 5); ctx.fillStyle = '#afffe44d'; ctx.fill();
 		circle(sim.particle.x, sim.particle.y, 2.7); ctx.fillStyle = '#f0fff6'; ctx.fill();
+		drawLiveGuidance();
 	}
 
 	function signed(value) { return (value >= 0 ? '+' : '−') + Math.abs(value).toFixed(0) + '%'; }

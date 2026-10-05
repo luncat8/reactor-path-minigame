@@ -5,7 +5,7 @@
 	const SAMPLES = 561;
 	const TAU = Math.PI * 2;
 	const MAX_GRAZING_SINE = Math.sin(25 * Math.PI / 180);
-	const GUIDANCE_DELAY = 2;
+	const GUIDANCE_DELAY = 4;
 	const GUIDANCE_FADE = 1;
 	const GUIDE_ACCELERATION_PER_PIXEL = 0.25;
 	const MAX_GUIDE_ACCELERATION = 50;
@@ -61,6 +61,8 @@
 			this.scratch = { x: 0, y: 0, vx: 0, vy: 0 };
 			this.particle = { x: 0, y: 0, vx: 0, vy: 0 };
 			this.guideForce = { x: 0, y: 0 };
+			this.liveForce = { x: 0, y: 0 };
+			this.liveDebug = { nearest: -1, target: -1, nx: 0, ny: 0, tx: 0, ty: 0 };
 			this.trailX = new Float64Array(900);
 			this.trailY = new Float64Array(900);
 			this.reset();
@@ -98,55 +100,85 @@
 				{ x: 105, y: -55, radius: 42 }
 			];
 			Object.assign(this.particle, { x: -230, y: 0, vx: 0, vy: -151 });
+			this.liveForce.x = 0; this.liveForce.y = 0;
+			this.liveDebug.nearest = -1; this.liveDebug.target = -1;
 			this.path.count = 0;
 			this.predict();
 		}
 
-		guidanceVector(p, guide, guidance) {
+		nearestNode(p, guide) {
+			const speed = Math.hypot(p.vx, p.vy);
+			if (speed < 1e-8) return -1;
+			const ux = p.vx / speed, uy = p.vy / speed;
+			let nearest = -1, nearestDistance2 = Infinity, fallback = -1, fallbackDistance2 = Infinity;
+			for (let i = 0; i < guide.count; i++) {
+				const dx = guide.x[i] - p.x, dy = guide.y[i] - p.y;
+				const distance2 = dx * dx + dy * dy;
+				if (distance2 < fallbackDistance2) { fallback = i; fallbackDistance2 = distance2; }
+				// Prefer nodes whose local travel direction agrees with the beam heading, so a
+				// self-crossing loop cannot capture the beam onto the opposing segment.
+				const j = i + 1 < guide.count ? i + 1 : i - 1;
+				const tx = guide.x[j] - guide.x[i], ty = guide.y[j] - guide.y[i];
+				const segment = Math.hypot(tx, ty);
+				if (segment < 1e-8) continue;
+				if ((ux * tx + uy * ty) / segment <= 0) continue;
+				if (distance2 >= nearestDistance2) continue;
+				nearest = i; nearestDistance2 = distance2;
+			}
+			return nearest >= 0 ? nearest : fallback;
+		}
+
+		guidanceVector(p, guide, guidance, debug) {
 			const force = this.guideForce;
 			force.x = 0; force.y = 0;
+			if (debug) { debug.nearest = -1; debug.target = -1; }
 			if (guide.count < 2 || guidance <= 0 || this.guideDistance <= 0 || this.guideDirection <= 0) return force;
 			const speed = Math.hypot(p.vx, p.vy);
 			if (speed < 1e-8) return force;
 
-			let nearest = -1, nearestDistance2 = Infinity;
-			for (let i = 0; i < guide.count; i++) {
-				const dx = guide.x[i] - p.x, dy = guide.y[i] - p.y;
-				const distance2 = dx * dx + dy * dy;
-				if (distance2 >= nearestDistance2) continue;
-				nearest = i; nearestDistance2 = distance2;
-			}
+			const nearest = this.nearestNode(p, guide);
 			if (nearest < 0) return force;
 
 			const lookaheadSamples = Math.max(1, Math.round(this.guideLookahead / (FORECAST_DT * 1000)));
 			const targetIndex = Math.min(nearest + lookaheadSamples, guide.count - 1);
 			if (targetIndex === nearest) return force;
-			const routeX = guide.x[targetIndex] - guide.x[nearest];
-			const routeY = guide.y[targetIndex] - guide.y[nearest];
+			const aimX = guide.x[targetIndex], aimY = guide.y[targetIndex];
+			const routeX = aimX - guide.x[nearest], routeY = aimY - guide.y[nearest];
 			const routeLength = Math.hypot(routeX, routeY);
 			if (routeLength < 1e-8) return force;
 
+			// Heading fade is measured against the route tangent, independent of the force axis,
+			// so a well-heading beam still receives a purely lateral (cross-track) correction.
 			const alignment = clamp((p.vx * routeX + p.vy * routeY) / (speed * routeLength), -1, 1);
 			const angle = Math.acos(alignment);
 			const angleLimit = this.guideDirection * Math.PI / 180;
 			if (angle >= angleLimit) return force;
-			const distance = Math.sqrt(nearestDistance2);
+			const distance = Math.hypot(guide.x[nearest] - p.x, guide.y[nearest] - p.y);
 			if (distance >= this.guideDistance) return force;
 
-			const targetX = guide.x[targetIndex] - p.x;
-			const targetY = guide.y[targetIndex] - p.y;
-			const targetDistance = Math.hypot(targetX, targetY);
-			if (targetDistance < 1e-8) return force;
+			// Aim at the look-ahead node relative to where the beam would coast on its own. A beam
+			// already tracking the path feels almost no push, while deviations get pulled back in.
+			const lookaheadTime = (targetIndex - nearest) * FORECAST_DT;
+			const corrX = aimX - (p.x + p.vx * lookaheadTime);
+			const corrY = aimY - (p.y + p.vy * lookaheadTime);
+			const correction = Math.hypot(corrX, corrY);
+			if (correction < 1e-8) return force;
+
 			const distanceFactor = 1 - smoothstep(distance / this.guideDistance);
 			const directionFactor = 1 - smoothstep(angle / angleLimit);
-			const magnitude = Math.min(MAX_GUIDE_ACCELERATION, targetDistance * GUIDE_ACCELERATION_PER_PIXEL) *
+			const magnitude = Math.min(MAX_GUIDE_ACCELERATION, correction * GUIDE_ACCELERATION_PER_PIXEL) *
 				guidance * distanceFactor * directionFactor;
-			force.x = targetX / targetDistance * magnitude;
-			force.y = targetY / targetDistance * magnitude;
+			force.x = corrX / correction * magnitude;
+			force.y = corrY / correction * magnitude;
+			if (debug) {
+				debug.nearest = nearest; debug.target = targetIndex;
+				debug.nx = guide.x[nearest]; debug.ny = guide.y[nearest];
+				debug.tx = aimX; debug.ty = aimY;
+			}
 			return force;
 		}
 
-		integrate(p, dt, guide, guidance, forceOut) {
+		integrate(p, dt, guide, guidance, forceOut, debug) {
 			const ax = p.x, ay = p.y;
 			let fx = -0.39 * p.x, fy = -0.64 * p.y;
 			for (let i = 0; i < this.magnets.length; i++) {
@@ -162,7 +194,7 @@
 			}
 			if (forceOut) { forceOut.x = 0; forceOut.y = 0; }
 			if (guide.count > 1 && guidance > 0) {
-				const force = this.guidanceVector(p, guide, guidance);
+				const force = this.guidanceVector(p, guide, guidance, debug);
 				fx += force.x; fy += force.y;
 				if (forceOut) { forceOut.x = force.x; forceOut.y = force.y; }
 			}
@@ -213,7 +245,7 @@
 
 		step() {
 			const p = this.particle, ax = p.x, ay = p.y;
-			this.integrate(p, DT, this.path, this.guideStrength);
+			this.integrate(p, DT, this.path, this.guideStrength, this.liveForce, this.liveDebug);
 			this.time += DT;
 			const smoothing = 1 - Math.exp(-DT / 10);
 			let balanced = this.time > 14;

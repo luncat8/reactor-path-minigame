@@ -7,12 +7,13 @@
 	const $ = id => document.getElementById(id);
 	const ui = {
 		angle: $('angle'), angleValue: $('angle-value'), strength: $('strength'), strengthValue: $('strength-value'),
-		polarity: $('polarity'), guidance: $('guidance'), guidanceValue: $('guidance-value'), pause: $('pause'), step: $('step'),
+		polarity: $('polarity'), magnetControls: $('magnet-controls'), guidance: $('guidance'), guidanceValue: $('guidance-value'), pause: $('pause'), step: $('step'),
 		clock: $('clock'), status: $('status'), light: $('status-light'), stability: $('stability'), cooling: $('cooling-value')
 	};
-	let selected = 0, paused = false, dragging = false, accumulator = 0, last = 0, lastUI = 0;
+	let selected = 0, paused = false, accumulator = 0, last = 0, lastUI = 0;
 	let scale = 1, width = 800, height = 650, pixelRatio = 1;
 	const pointer = { x: 0, y: 0 };
+	const drag = { mode: '', target: -1, offsetX: 0, offsetY: 0, lastAngle: 0 };
 	const buttons = [], meters = [];
 	const forecastLabels = ['', '', ''];
 	const instrument = () => selected < 4 ? sim.magnets[selected] : sim.reflectors[selected - 4];
@@ -35,13 +36,18 @@
 	function syncControls() {
 		const item = instrument();
 		for (let i = 0; i < buttons.length; i++) buttons[i].setAttribute('aria-pressed', i === selected);
-		$('selected-name').textContent = (selected < 4 ? 'Magnet ' : 'Reflector ') + item.name;
-		$('selected-kind').textContent = selected < 4 ? 'PERIMETER FIELD' : 'GRAZING SURFACE';
-		$('magnet-controls').hidden = selected >= 4;
+		const magnetSelected = selected < 4;
+		$('selected-name').textContent = (magnetSelected ? 'Magnet ' : 'Reflector ') + item.name;
+		$('selected-kind').textContent = magnetSelected ? 'PERIMETER FIELD' : 'GRAZING SURFACE';
+		ui.magnetControls.classList.toggle('inactive', !magnetSelected);
+		ui.magnetControls.inert = !magnetSelected;
+		ui.magnetControls.setAttribute('aria-hidden', String(!magnetSelected));
+		ui.strength.disabled = !magnetSelected;
+		ui.polarity.disabled = !magnetSelected;
 		const degrees = Math.round(Math.atan2(Math.sin(item.angle), Math.cos(item.angle)) * 180 / Math.PI);
 		ui.angle.value = degrees;
 		ui.angleValue.textContent = degrees + '°';
-		if (selected >= 4) return;
+		if (!magnetSelected) return;
 		ui.strength.value = item.strength;
 		ui.strengthValue.textContent = item.strength.toFixed(2) + '×';
 		ui.polarity.textContent = item.polarity > 0 ? '+  Attract · click to reverse' : '−  Repel · click to reverse';
@@ -86,25 +92,63 @@
 		else y = y < 0 ? -270 : 270;
 		item.x = x; item.y = y;
 	}
-	canvas.addEventListener('pointerdown', event => {
-		locate(event);
-		let nearest = 30 / Math.min(scale, 1), hit = -1;
+	function instrumentAt(index) { return index < 4 ? sim.magnets[index] : sim.reflectors[index - 4]; }
+	function containsItem(item, index, x, y) {
+		const dx = x - item.x, dy = y - item.y;
+		if (index >= 4 && Math.abs(dx) <= 20 && Math.abs(dy + 19) <= 8) return true;
+		const cosine = Math.cos(item.angle), sine = Math.sin(item.angle);
+		const localX = dx * cosine + dy * sine;
+		const localY = -dx * sine + dy * cosine;
+		if (index < 4) return localX >= -24 && localX <= 40 && Math.abs(localY) <= 20;
+		return Math.abs(localX) <= item.length / 2 + 5 && Math.abs(localY) <= 10;
+	}
+	function hitInstrument(x, y) {
+		if (containsItem(instrument(), selected, x, y)) return selected;
 		for (let i = 0; i < 6; i++) {
-			const item = i < 4 ? sim.magnets[i] : sim.reflectors[i - 4];
-			const distance = Math.hypot(pointer.x - item.x, pointer.y - item.y);
-			if (distance >= nearest) continue;
-			nearest = distance; hit = i;
+			if (i === selected) continue;
+			if (containsItem(instrumentAt(i), i, x, y)) return i;
 		}
-		if (hit < 0) return;
-		selected = hit; dragging = hit < 4;
-		canvas.setPointerCapture(event.pointerId);
+		return -1;
+	}
+	canvas.addEventListener('pointerdown', event => {
+		if (event.button !== 0) return;
+		locate(event);
+		const hit = hitInstrument(pointer.x, pointer.y);
+		if (hit >= 0) selected = hit;
 		canvas.focus(); syncControls();
+		const item = instrument();
+		if (hit === selected && selected < 4) {
+			drag.mode = 'move';
+			drag.target = selected;
+			drag.offsetX = item.x - pointer.x;
+			drag.offsetY = item.y - pointer.y;
+		} else if (hit < 0) {
+			drag.mode = 'rotate';
+			drag.target = selected;
+			drag.lastAngle = Math.atan2(pointer.y - item.y, pointer.x - item.x);
+		} else return;
+		canvas.setPointerCapture(event.pointerId);
 	});
 	canvas.addEventListener('pointermove', event => {
-		if (!dragging) return;
-		locate(event); perimeter(instrument(), pointer.x, pointer.y); changed();
+		if (!drag.mode) return;
+		locate(event);
+		const item = instrumentAt(drag.target);
+		if (drag.mode === 'move') {
+			perimeter(item, pointer.x + drag.offsetX, pointer.y + drag.offsetY);
+			changed();
+			return;
+		}
+		const dx = pointer.x - item.x, dy = pointer.y - item.y;
+		if (dx * dx + dy * dy < 1) return;
+		const angle = Math.atan2(dy, dx);
+		let delta = angle - drag.lastAngle;
+		if (delta > Math.PI) delta -= TAU;
+		else if (delta < -Math.PI) delta += TAU;
+		item.angle += delta;
+		drag.lastAngle = angle;
+		changed();
 	});
-	function stopDrag() { dragging = false; }
+	function stopDrag() { drag.mode = ''; drag.target = -1; }
 	canvas.addEventListener('pointerup', stopDrag);
 	canvas.addEventListener('pointercancel', stopDrag);
 	canvas.addEventListener('lostpointercapture', stopDrag);

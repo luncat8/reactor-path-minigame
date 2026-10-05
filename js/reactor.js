@@ -4,6 +4,7 @@
 	const FORECAST_DT = 1 / 40;
 	const SAMPLES = 561;
 	const TAU = Math.PI * 2;
+	const MAX_GRAZING_SINE = Math.sin(25 * Math.PI / 180);
 	const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 	function circleFraction(ax, ay, bx, by, cx, cy, radius) {
@@ -32,8 +33,11 @@
 		const u = d0 / (d0 - d1);
 		const ix = ax + (p.x - ax) * u, iy = ay + (p.y - ay) * u;
 		if (Math.abs((ix - reflector.x) * tx + (iy - reflector.y) * ty) > reflector.length / 2) return false;
+		const stepX = p.x - ax, stepY = p.y - ay;
+		const stepLength = Math.hypot(stepX, stepY);
+		if (stepLength < 1e-10) return false;
+		if (Math.abs(stepX * nx + stepY * ny) > stepLength * MAX_GRAZING_SINE) return false;
 		const normalSpeed = p.vx * nx + p.vy * ny;
-		if (Math.abs(normalSpeed) > Math.hypot(p.vx, p.vy) * Math.sin(Math.PI / 7.2)) return false;
 		p.vx -= 2 * normalSpeed * nx;
 		p.vy -= 2 * normalSpeed * ny;
 		p.x = ix + p.vx * dt * (1 - u);
@@ -69,7 +73,7 @@
 			];
 			this.reflectors = [
 				{ x: -150, y: -100, angle: -0.35, length: 105, name: 'R1' },
-				{ x: 160, y: 110, angle: -0.35, length: 105, name: 'R2' }
+				{ x: 160, y: 110, angle: -0.5, length: 105, name: 'R2' }
 			];
 			this.targets = [
 				{ x: -215, y: -80, radius: 38, desired: 0.065, actual: 0, predicted: 0, name: 'A' },
@@ -100,7 +104,7 @@
 				fy += force * (uy * alignment + my * 0.25);
 			}
 			if (guide.count > 1 && guidance > 0) {
-				let best = Infinity, gx = 0, gy = 0, tx = 0, ty = 0;
+				let best = Infinity, gx = 0, gy = 0, tx = 0, ty = 0, alignment = 0;
 				const speed = Math.hypot(p.vx, p.vy) || 1;
 				for (let i = 0; i < guide.count - 1; i += 2) {
 					const j = Math.min(i + 2, guide.count - 1);
@@ -110,15 +114,17 @@
 					const u = clamp(((p.x - guide.x[i]) * dx + (p.y - guide.y[i]) * dy) / length2, 0, 1);
 					const x = guide.x[i] + u * dx, y = guide.y[i] + u * dy;
 					const length = Math.sqrt(length2);
-					const alignment = (p.vx * dx + p.vy * dy) / (speed * length);
-					const score = (x - p.x) ** 2 + (y - p.y) ** 2 + 1400 * (1 - alignment);
+					const direction = (p.vx * dx + p.vy * dy) / (speed * length);
+					if (direction <= 1e-6) continue;
+					const score = (x - p.x) ** 2 + (y - p.y) ** 2 + 1400 * (1 - direction);
 					if (score >= best) continue;
-					best = score; gx = x; gy = y; tx = dx / length; ty = dy / length;
+					best = score; gx = x; gy = y; tx = dx / length; ty = dy / length; alignment = direction;
 				}
 				if (best < 10000) {
 					const lateral = p.vx * -ty + p.vy * tx;
-					fx += guidance * clamp((gx - p.x) * 2.5 + lateral * ty * 0.8 + (tx * speed - p.vx) * 0.3, -75, 75);
-					fy += guidance * clamp((gy - p.y) * 2.5 - lateral * tx * 0.8 + (ty * speed - p.vy) * 0.3, -75, 75);
+					const agreement = alignment * alignment;
+					fx += guidance * agreement * clamp((gx - p.x) * 2.5 + lateral * ty * 0.8 + (tx * speed - p.vx) * 0.3, -75, 75);
+					fy += guidance * agreement * clamp((gy - p.y) * 2.5 - lateral * tx * 0.8 + (ty * speed - p.vy) * 0.3, -75, 75);
 				}
 			}
 			// Soft containment; the chamber walls are not reflecting surfaces.

@@ -43,6 +43,29 @@ test('grazing crossings reflect, steep impacts and misses pass through', () => {
 	assert.equal(reflect(miss, 70, -1, 0.1, r), false);
 });
 
+test('integrator reflects a swept grazing hit and the default forecast visibly uses R2', () => {
+	const sim = new Reactor();
+	sim.magnets.forEach(magnet => { magnet.strength = 0; });
+	sim.reflectors = [{ x: 0, y: 0, angle: 0, length: 100 }];
+	const p = { x: 0, y: -0.01, vx: 145, vy: 30 };
+	sim.integrate(p, DT, { count: 0 }, 0);
+	assert.ok(p.vy < 0 && p.y < 0);
+
+	const reflected = new Reactor(), unobstructed = new Reactor();
+	reflected.guideStrength = unobstructed.guideStrength = 0;
+	unobstructed.reflectors.length = 0;
+	reflected.predict(); unobstructed.predict();
+	let largestDifference = 0;
+	for (let i = 0; i < reflected.path.count; i++) {
+		largestDifference = Math.max(largestDifference,
+			Math.hypot(reflected.path.x[i] - unobstructed.path.x[i], reflected.path.y[i] - unobstructed.path.y[i]));
+	}
+	assert.ok(largestDifference > 20, 'default R2 should create a clear forecast bounce');
+	for (let i = 0; i < 120 * 8; i++) { reflected.step(); unobstructed.step(); }
+	assert.ok(Math.hypot(reflected.particle.x - unobstructed.particle.x, reflected.particle.y - unobstructed.particle.y) > 20,
+		'default R2 should change the live particle path');
+});
+
 test('simulation is deterministic and reset restores the initial prediction', () => {
 	const a = new Reactor(), b = new Reactor();
 	const initial = Array.from(a.path.x);
@@ -61,14 +84,25 @@ test('magnet position, orientation, and polarity influence forecasts', () => {
 	assert.ok(Math.hypot(a.path.x[200] - b.path.x[200], a.path.y[200] - b.path.y[200]) > 1);
 });
 
-test('guidance is a bounded acceleration, not a teleport', () => {
+test('guidance is a bounded acceleration gated by forward direction', () => {
 	const sim = new Reactor();
-	const p = { x: sim.path.x[50] + 12, y: sim.path.y[50], vx: 100, vy: 50 };
-	const q = { ...p };
-	sim.integrate(p, DT, sim.path, 1);
-	sim.integrate(q, DT, sim.path, 0);
-	assert.ok(Math.hypot(p.x - q.x, p.y - q.y) < 0.02);
-	assert.ok(Math.hypot(p.vx - q.vx, p.vy - q.vy) > 0.00001);
+	sim.magnets.forEach(magnet => { magnet.strength = 0; });
+	sim.reflectors.length = 0;
+	const guide = { count: 2, x: [0, 100], y: [0, 0] };
+	const noGuide = { count: 0 };
+	const effect = (vx, vy) => {
+		const guided = { x: 50, y: 10, vx, vy };
+		const plain = { ...guided };
+		sim.integrate(guided, DT, guide, 1);
+		sim.integrate(plain, DT, noGuide, 0);
+		return Math.hypot(guided.vx - plain.vx, guided.vy - plain.vy);
+	};
+	const aligned = effect(100, 0);
+	assert.ok(aligned > 0.00001 && aligned < 2);
+	assert.equal(effect(-100, 0), 0);
+	assert.equal(effect(0, 100), 0);
+	assert.ok(effect(1, 100) < aligned * 0.01, 'near-perpendicular motion should receive almost no guide force');
+	assert.ok(effect(86.6, 50) > 0, 'partly aligned motion may receive a guide force');
 });
 
 test('long runs remain finite and bounded across field settings', () => {

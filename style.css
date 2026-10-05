@@ -42,6 +42,7 @@ aside { display: grid; gap: 14px; }.card { padding: 19px; }
 label { display: flex; justify-content: space-between; font-size: 11px; color: #a4b7b9; }output { font: 11px monospace; color: var(--cyan); }
 input[type=range] { width: 100%; accent-color: var(--cyan); margin: 12px 0 19px; height: 3px; cursor: pointer; }
 .wide { width: 100%; text-align: left; color: var(--cyan); }
+#magnet-controls.inactive { visibility: hidden; }
 .micro { font-size: 10px; color: #789095; line-height: 1.7; margin: 14px 0 0; }
 .target-meter { margin-top: 19px; }.meter-label { display: flex; justify-content: space-between; font: 11px monospace; color: #afc1c1; }.meter-label b { font-weight: 400; color: var(--cyan); }
 .meter-track { height: 5px; margin-top: 9px; background: #263236; position: relative; }.meter-track::after { content: ''; position: absolute; left: 50%; top: -3px; height: 11px; width: 1px; background: #8ba7a6; }.meter-fill { height: 100%; width: 0; background: var(--cyan); }

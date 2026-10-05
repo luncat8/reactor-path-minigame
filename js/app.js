@@ -12,6 +12,7 @@
 		guideDistance: $('guide-distance'), guideDistanceValue: $('guide-distance-value'),
 		guideDirection: $('guide-direction'), guideDirectionValue: $('guide-direction-value'),
 		guideLookahead: $('guide-lookahead'), guideLookaheadValue: $('guide-lookahead-value'),
+		guideMemory: $('guide-memory'), guideMemoryValue: $('guide-memory-value'), guideReadout: $('guide-readout'),
 		debugGuidance: $('debug-guidance'), pause: $('pause'), step: $('step'),
 		clock: $('clock'), status: $('status'), light: $('status-light'), stability: $('stability'), cooling: $('cooling-value')
 	};
@@ -73,8 +74,11 @@
 	ui.guideDistance.addEventListener('input', () => { sim.guideDistance = Number(ui.guideDistance.value); changed(); });
 	ui.guideDirection.addEventListener('input', () => { sim.guideDirection = Number(ui.guideDirection.value); changed(); });
 	ui.guideLookahead.addEventListener('input', () => { sim.guideLookahead = Number(ui.guideLookahead.value); changed(); });
+	ui.guideMemory.addEventListener('input', () => { sim.planLag = Number(ui.guideMemory.value); changed(); });
 	ui.debugGuidance.addEventListener('change', () => {
 		$('guide-legend').classList.toggle('visible', ui.debugGuidance.checked);
+		ui.guideReadout.classList.toggle('visible', ui.debugGuidance.checked);
+		updateGuideReadout();
 	});
 	function togglePause() {
 		paused = !paused;
@@ -91,6 +95,7 @@
 		ui.guideDistance.value = sim.guideDistance;
 		ui.guideDirection.value = sim.guideDirection;
 		ui.guideLookahead.value = sim.guideLookahead;
+		ui.guideMemory.value = sim.planLag;
 		ui.debugGuidance.checked = false;
 		$('guide-legend').classList.remove('visible');
 		syncControls(); updateUI();
@@ -204,31 +209,50 @@
 		line(tipX, tipY, tipX - ux * head - uy * head * 0.6, tipY - uy * head + ux * head * 0.6);
 		line(tipX, tipY, tipX - ux * head + uy * head * 0.6, tipY - uy * head - ux * head * 0.6);
 	}
+	// Square-root length: an honest order of magnitude instead of the misleading minimum that made
+	// noise-level forces look like full-strength pulls. The readout carries the exact value.
+	function forceArrowLength(magnitude, minimum, maximum) {
+		return Math.max(minimum, Math.min(maximum, Math.sqrt(magnitude) * 15));
+	}
 	function drawGuidanceVectors() {
 		if (!ui.debugGuidance.checked) return;
 		ctx.save(); ctx.strokeStyle = '#f3bd72'; ctx.fillStyle = '#f3bd72'; ctx.lineWidth = 1.3;
 		for (let i = 20; i < sim.path.count; i += 20) {
 			const magnitude = Math.hypot(sim.path.forceX[i], sim.path.forceY[i]);
-			if (magnitude < 0.08) continue;
-			const length = Math.min(42, Math.max(14, magnitude * 4));
+			if (magnitude < 0.04) continue;
+			const length = forceArrowLength(magnitude, 6, 44);
 			arrow(sim.path.x[i], sim.path.y[i], sim.path.forceX[i] / magnitude, sim.path.forceY[i] / magnitude, length, 4);
 		}
 		ctx.restore();
+	}
+	function drawRoute() {
+		if (!ui.debugGuidance.checked || sim.reference.count < 2) return;
+		ctx.save(); ctx.strokeStyle = '#a08cf2'; ctx.lineWidth = 1.1; ctx.setLineDash([5, 4]);
+		ctx.beginPath();
+		for (let i = 0; i < sim.reference.count; i++) {
+			if (i === 0) ctx.moveTo(sim.reference.x[i], sim.reference.y[i]);
+			else ctx.lineTo(sim.reference.x[i], sim.reference.y[i]);
+		}
+		ctx.stroke(); ctx.restore();
 	}
 	function drawLiveGuidance() {
 		if (!ui.debugGuidance.checked) return;
 		const d = sim.liveDebug;
 		if (sim.guideStrength <= 0 || sim.guideDistance <= 0 || sim.guideDirection <= 0 || d.nearest < 0) return;
 		ctx.save();
-		// Hollow ring: nearest forecast node. Filled dot: the look-ahead node it aims at.
-		circle(d.nx, d.ny, 5.5); ctx.strokeStyle = '#f3bd72'; ctx.lineWidth = 1.3; ctx.stroke();
+		// Cross-track error: from the beam to its projection on the committed route.
+		ctx.strokeStyle = '#f3bd7290'; ctx.lineWidth = 1.1; ctx.setLineDash([3, 3]);
+		line(sim.particle.x, sim.particle.y, d.nx, d.ny);
+		ctx.setLineDash([]);
+		// Hollow ring: the projected route point. Filled dot: the point one look-ahead ahead of it.
+		circle(d.nx, d.ny, 5.5); ctx.strokeStyle = '#f3bd72'; ctx.lineWidth = 1.4; ctx.stroke();
 		circle(d.tx, d.ty, 3); ctx.fillStyle = '#f3bd72'; ctx.fill();
-		// White arrow: the acceleration actually pulling the live beam right now.
+		// White arrow: the steering acceleration pulling the live beam right now (never backwards).
 		const magnitude = Math.hypot(sim.liveForce.x, sim.liveForce.y);
-		if (magnitude > 0.02) {
-			const length = Math.min(70, Math.max(20, magnitude * 8));
+		if (magnitude > 0.015) {
 			ctx.strokeStyle = '#ffffff'; ctx.fillStyle = '#ffffff'; ctx.lineWidth = 1.9;
-			arrow(sim.particle.x, sim.particle.y, sim.liveForce.x / magnitude, sim.liveForce.y / magnitude, length, 5.5);
+			arrow(sim.particle.x, sim.particle.y, sim.liveForce.x / magnitude, sim.liveForce.y / magnitude,
+				forceArrowLength(magnitude, 8, 80), 5.5);
 		}
 		ctx.restore();
 	}
@@ -259,6 +283,7 @@
 			else ctx.lineTo(sim.path.x[i], sim.path.y[i]);
 		}
 		ctx.stroke();
+		drawRoute();
 		drawGuidanceVectors();
 		ctx.strokeStyle = '#bdeee0a6'; ctx.lineWidth = 1.7; ctx.beginPath();
 		for (let i = 0; i < sim.trailCount; i++) {
@@ -306,6 +331,8 @@
 		ui.guideDistanceValue.textContent = sim.guideDistance > 0 ? sim.guideDistance + ' px' : 'OFF';
 		ui.guideDirectionValue.textContent = sim.guideDirection + '°';
 		ui.guideLookaheadValue.textContent = sim.guideLookahead + ' ms';
+		ui.guideMemoryValue.textContent = sim.planLag > 0 ? sim.planLag.toFixed(1) + ' s' : 'OFF';
+		updateGuideReadout();
 		for (let i = 0; i < sim.targets.length; i++) {
 			const t = sim.targets[i];
 			meters[i].label.textContent = signed((t.actual / t.desired - 1) * 100);
@@ -317,6 +344,14 @@
 		ui.status.textContent = paused ? 'SIMULATION PAUSED' : sim.stableTime >= 8 ? 'REACTOR STABLE' : sim.stableTime > 0 ? 'BALANCE ACQUIRED' : 'TUNING REACTOR';
 		ui.light.style.background = sim.stableTime > 0 ? '#70e2d3' : '#edbb70';
 		ui.stability.textContent = sim.stableTime > 0 ? Math.min(8, sim.stableTime).toFixed(1) + ' / 8.0 s stable' : 'Hold balance for 8 seconds';
+	}
+	function updateGuideReadout() {
+		if (!ui.debugGuidance.checked) { ui.guideReadout.textContent = ''; return; }
+		const d = sim.liveDebug;
+		if (d.nearest < 0) { ui.guideReadout.textContent = 'no forward route — guidance idle'; return; }
+		ui.guideReadout.textContent = 'route ' + d.age.toFixed(1) + ' s old · off-route ' + d.distance.toFixed(1) +
+			' px · heading ' + Math.round(d.angle * 180 / Math.PI) + '° · force ' + d.magnitude.toFixed(2) +
+			' · node ' + d.nearest + '→' + d.target;
 	}
 	function frame(now) {
 		const elapsed = last ? Math.min((now - last) / 1000, 0.1) : 0;

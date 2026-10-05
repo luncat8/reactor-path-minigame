@@ -1,0 +1,53 @@
+:root { color-scheme: dark; font-family: 'Segoe UI', Arial, sans-serif; color: #dfe9e9; background: #0b1013; --cyan: #70e2d3; --muted: #809699; --line: #283438; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+header { height: 80px; padding: 0 4%; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+.brand { color: #eef7f5; text-decoration: none; font-size: 19px; font-weight: 650; letter-spacing: 3px; display: flex; align-items: center; gap: 12px; }
+.brand-icon { width: 25px; height: 25px; border: 1px solid var(--cyan); border-radius: 50%; position: relative; }
+.brand-icon::after { content: ""; position: absolute; inset: 6px; border: 2px solid var(--cyan); border-radius: 50%; }
+.brand small { color: var(--muted); font-size: 10px; letter-spacing: 2px; border-left: 1px solid var(--line); padding-left: 16px; margin-left: 6px; }
+.edition { font: 10px monospace; color: var(--muted); letter-spacing: 1px; }
+.edition b { margin-left: 22px; color: var(--cyan); font-weight: 400; }
+main { max-width: 1560px; padding: 34px 4% 20px; margin: auto; }
+.intro { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; gap: 20px; }
+.eyebrow { font: 10px monospace; color: var(--cyan); letter-spacing: 1.7px; margin: 0 0 12px; }
+h1 { font-size: clamp(28px, 3vw, 42px); letter-spacing: -1.4px; font-weight: 450; margin: 0 0 10px; }
+.intro p:not(.eyebrow) { font-size: 13px; color: var(--muted); margin: 0; }
+.status { display: grid; grid-template-columns: 10px auto; gap: 8px 10px; font: 11px monospace; letter-spacing: 1px; }
+.status span { width: 6px; height: 6px; background: #edbb70; border-radius: 50%; margin-top: 3px; }
+.status small { grid-column: 2; font: 11px 'Segoe UI', sans-serif; color: var(--muted); letter-spacing: 0; }
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 20px; align-items: start; }
+.chamber, .card { background: #10181c; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.panel-heading { display: flex; align-items: center; justify-content: space-between; font: 10px monospace; color: #9db1b3; letter-spacing: 1px; }
+.chamber > .panel-heading { height: 48px; padding: 0 20px; border-bottom: 1px solid var(--line); }
+.dot { display: inline-block; width: 5px; height: 5px; background: var(--cyan); border-radius: 50%; margin-right: 7px; }
+canvas { display: block; width: 100%; aspect-ratio: 800 / 650; touch-action: none; }
+.legend { display: flex; justify-content: center; gap: 22px; color: var(--muted); font: 10px monospace; padding: 4px 10px 21px; flex-wrap: wrap; }
+.legend span { display: flex; align-items: center; gap: 7px; }
+.line { width: 16px; height: 1px; display: inline-block; }.cyan { background: var(--cyan); }.white { background: #edf9f4; }
+.zone { width: 9px; height: 9px; border: 1px solid #c88b61; border-radius: 50%; }
+.transport { display: flex; align-items: center; gap: 8px; padding: 15px 18px; border-top: 1px solid var(--line); }
+.transport span { margin-left: auto; font: 9px monospace; color: #60797d; }
+button { font: 11px 'Segoe UI', sans-serif; color: #c1d1d2; background: #1a272c; border: 1px solid #35474b; border-radius: 4px; padding: 8px 13px; cursor: pointer; }
+button:hover { background: #24383b; color: white; } button:disabled { opacity: .35; cursor: default; }
+button:focus-visible, input:focus-visible, canvas:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
+#pause { color: #081817; background: var(--cyan); border-color: var(--cyan); min-width: 76px; }
+.quiet { background: transparent; border-color: transparent; }
+aside { display: grid; gap: 14px; }.card { padding: 19px; }
+.hint { font-size: 12px; color: var(--muted); line-height: 1.6; margin: 17px 0; }
+.instrument-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }.instrument-grid button { padding: 8px 0; font: 11px monospace; }
+.instrument-grid button[aria-pressed=true] { color: var(--cyan); border-color: var(--cyan); background: #16312f; }
+.selection-heading { margin: 22px 0 18px; display: flex; align-items: center; justify-content: space-between; gap: 5px; }h2 { font-size: 14px; font-weight: 500; margin: 0; }
+.selection-heading span { font: 8px monospace; color: #688387; }
+label { display: flex; justify-content: space-between; font-size: 11px; color: #a4b7b9; }output { font: 11px monospace; color: var(--cyan); }
+input[type=range] { width: 100%; accent-color: var(--cyan); margin: 12px 0 19px; height: 3px; cursor: pointer; }
+.wide { width: 100%; text-align: left; color: var(--cyan); }
+.micro { font-size: 10px; color: #789095; line-height: 1.7; margin: 14px 0 0; }
+.target-meter { margin-top: 19px; }.meter-label { display: flex; justify-content: space-between; font: 11px monospace; color: #afc1c1; }.meter-label b { font-weight: 400; color: var(--cyan); }
+.meter-track { height: 5px; margin-top: 9px; background: #263236; position: relative; }.meter-track::after { content: ''; position: absolute; left: 50%; top: -3px; height: 11px; width: 1px; background: #8ba7a6; }.meter-fill { height: 100%; width: 0; background: var(--cyan); }
+.cooling-row { border-top: 1px solid var(--line); margin-top: 22px; padding-top: 15px; display: flex; justify-content: space-between; font-size: 11px; color: #a4b7b9; }.cooling-row strong { font: 12px monospace; color: #edbb70; }
+.guide-card input { margin-bottom: 5px; }footer { display: flex; justify-content: space-between; gap: 25px; padding: 24px 0; font-size: 10px; line-height: 1.7; color: #738b8f; }footer b { color: #a2b6b7; font: 9px monospace; margin-right: 12px; }footer > span:last-child { font: 9px monospace; text-align: right; }
+@media (min-width: 1400px) { canvas { max-height: 760px; } }
+@media (max-width: 1000px) { .workspace { grid-template-columns: minmax(0, 1fr) 275px; gap: 14px; }.card { padding: 15px; }.transport span { display: none; }.legend { gap: 12px; } }
+@media (max-width: 760px) { header { height: 65px; }.brand small, .edition { display: none; }main { padding-top: 26px; }.intro { align-items: start; }.status { font-size: 9px; max-width: 130px; }.workspace { grid-template-columns: 1fr; }aside { grid-template-columns: 1fr 1fr; }.guide-card { grid-column: 1 / -1; }footer { flex-direction: column; gap: 10px; }footer > span:last-child { text-align: left; } }
+@media (max-width: 480px) { aside { grid-template-columns: 1fr; }.intro { flex-direction: column; }.status { max-width: none; }.brand { font-size: 16px; }.legend { font-size: 9px; } }

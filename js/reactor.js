@@ -5,7 +5,13 @@
 	const SAMPLES = 561;
 	const TAU = Math.PI * 2;
 	const MAX_GRAZING_SINE = Math.sin(25 * Math.PI / 180);
+	const GUIDANCE_DELAY = 2;
+	const GUIDANCE_FADE = 1;
+	const GUIDE_ACCELERATION_PER_PIXEL = 0.25;
+	const MAX_GUIDE_ACCELERATION = 50;
 	const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+	const smoothstep = value => { const t = clamp(value, 0, 1); return t * t * (3 - 2 * t); };
+	const guidanceRamp = seconds => smoothstep((seconds - GUIDANCE_DELAY) / GUIDANCE_FADE);
 
 	function circleFraction(ax, ay, bx, by, cx, cy, radius) {
 		const dx = bx - ax, dy = by - ay;
@@ -21,7 +27,10 @@
 	}
 
 	function makePath() {
-		return { x: new Float64Array(SAMPLES), y: new Float64Array(SAMPLES), t: new Float64Array(SAMPLES), count: 0 };
+		return {
+			x: new Float64Array(SAMPLES), y: new Float64Array(SAMPLES), t: new Float64Array(SAMPLES),
+			forceX: new Float64Array(SAMPLES), forceY: new Float64Array(SAMPLES), count: 0
+		};
 	}
 
 	function reflect(p, ax, ay, dt, reflector) {
@@ -51,6 +60,7 @@
 			this.sparePath = makePath();
 			this.scratch = { x: 0, y: 0, vx: 0, vy: 0 };
 			this.particle = { x: 0, y: 0, vx: 0, vy: 0 };
+			this.guideForce = { x: 0, y: 0 };
 			this.trailX = new Float64Array(900);
 			this.trailY = new Float64Array(900);
 			this.reset();
@@ -59,6 +69,9 @@
 		reset() {
 			this.time = 0;
 			this.guideStrength = 0.65;
+			this.guideDistance = 100;
+			this.guideDirection = 90;
+			this.guideLookahead = 100;
 			this.forecastClock = 0;
 			this.stableTime = 0;
 			this.cooling = 0;
@@ -89,7 +102,51 @@
 			this.predict();
 		}
 
-		integrate(p, dt, guide, guidance) {
+		guidanceVector(p, guide, guidance) {
+			const force = this.guideForce;
+			force.x = 0; force.y = 0;
+			if (guide.count < 2 || guidance <= 0 || this.guideDistance <= 0 || this.guideDirection <= 0) return force;
+			const speed = Math.hypot(p.vx, p.vy);
+			if (speed < 1e-8) return force;
+
+			let nearest = -1, nearestDistance2 = Infinity;
+			for (let i = 0; i < guide.count; i++) {
+				const dx = guide.x[i] - p.x, dy = guide.y[i] - p.y;
+				const distance2 = dx * dx + dy * dy;
+				if (distance2 >= nearestDistance2) continue;
+				nearest = i; nearestDistance2 = distance2;
+			}
+			if (nearest < 0) return force;
+
+			const lookaheadSamples = Math.max(1, Math.round(this.guideLookahead / (FORECAST_DT * 1000)));
+			const targetIndex = Math.min(nearest + lookaheadSamples, guide.count - 1);
+			if (targetIndex === nearest) return force;
+			const routeX = guide.x[targetIndex] - guide.x[nearest];
+			const routeY = guide.y[targetIndex] - guide.y[nearest];
+			const routeLength = Math.hypot(routeX, routeY);
+			if (routeLength < 1e-8) return force;
+
+			const alignment = clamp((p.vx * routeX + p.vy * routeY) / (speed * routeLength), -1, 1);
+			const angle = Math.acos(alignment);
+			const angleLimit = this.guideDirection * Math.PI / 180;
+			if (angle >= angleLimit) return force;
+			const distance = Math.sqrt(nearestDistance2);
+			if (distance >= this.guideDistance) return force;
+
+			const targetX = guide.x[targetIndex] - p.x;
+			const targetY = guide.y[targetIndex] - p.y;
+			const targetDistance = Math.hypot(targetX, targetY);
+			if (targetDistance < 1e-8) return force;
+			const distanceFactor = 1 - smoothstep(distance / this.guideDistance);
+			const directionFactor = 1 - smoothstep(angle / angleLimit);
+			const magnitude = Math.min(MAX_GUIDE_ACCELERATION, targetDistance * GUIDE_ACCELERATION_PER_PIXEL) *
+				guidance * distanceFactor * directionFactor;
+			force.x = targetX / targetDistance * magnitude;
+			force.y = targetY / targetDistance * magnitude;
+			return force;
+		}
+
+		integrate(p, dt, guide, guidance, forceOut) {
 			const ax = p.x, ay = p.y;
 			let fx = -0.39 * p.x, fy = -0.64 * p.y;
 			for (let i = 0; i < this.magnets.length; i++) {
@@ -103,29 +160,11 @@
 				fx += force * (ux * alignment + mx * 0.25);
 				fy += force * (uy * alignment + my * 0.25);
 			}
+			if (forceOut) { forceOut.x = 0; forceOut.y = 0; }
 			if (guide.count > 1 && guidance > 0) {
-				let best = Infinity, gx = 0, gy = 0, tx = 0, ty = 0, alignment = 0;
-				const speed = Math.hypot(p.vx, p.vy) || 1;
-				for (let i = 0; i < guide.count - 1; i += 2) {
-					const j = Math.min(i + 2, guide.count - 1);
-					const dx = guide.x[j] - guide.x[i], dy = guide.y[j] - guide.y[i];
-					const length2 = dx * dx + dy * dy;
-					if (length2 < 1e-8) continue;
-					const u = clamp(((p.x - guide.x[i]) * dx + (p.y - guide.y[i]) * dy) / length2, 0, 1);
-					const x = guide.x[i] + u * dx, y = guide.y[i] + u * dy;
-					const length = Math.sqrt(length2);
-					const direction = (p.vx * dx + p.vy * dy) / (speed * length);
-					if (direction <= 1e-6) continue;
-					const score = (x - p.x) ** 2 + (y - p.y) ** 2 + 1400 * (1 - direction);
-					if (score >= best) continue;
-					best = score; gx = x; gy = y; tx = dx / length; ty = dy / length; alignment = direction;
-				}
-				if (best < 10000) {
-					const lateral = p.vx * -ty + p.vy * tx;
-					const agreement = alignment * alignment;
-					fx += guidance * agreement * clamp((gx - p.x) * 2.5 + lateral * ty * 0.8 + (tx * speed - p.vx) * 0.3, -75, 75);
-					fy += guidance * agreement * clamp((gy - p.y) * 2.5 - lateral * tx * 0.8 + (ty * speed - p.vy) * 0.3, -75, 75);
-				}
+				const force = this.guidanceVector(p, guide, guidance);
+				fx += force.x; fy += force.y;
+				if (forceOut) { forceOut.x = force.x; forceOut.y = force.y; }
 			}
 			// Soft containment; the chamber walls are not reflecting surfaces.
 			fx -= Math.sign(p.x) * Math.max(0, Math.abs(p.x) - 285) * 4;
@@ -146,9 +185,15 @@
 			Object.assign(p, this.particle);
 			for (let i = 0; i < SAMPLES; i++) {
 				next.x[i] = p.x; next.y[i] = p.y; next.t[i] = this.time + i * FORECAST_DT;
-				if (i === SAMPLES - 1) break;
-				const remaining = this.path.count ? (this.path.t[this.path.count - 1] - next.t[i]) / 3 : 0;
-				for (let sub = 0; sub < 3; sub++) this.integrate(p, DT, this.path, this.guideStrength * clamp(remaining, 0, 1));
+				if (i === SAMPLES - 1) { next.forceX[i] = 0; next.forceY[i] = 0; break; }
+				// Delay feedback in the near forecast so guidance cannot immediately chase its own path.
+				for (let sub = 0; sub < 3; sub++) {
+					const futureSeconds = i * FORECAST_DT + sub * DT;
+					const forceOut = sub === 0 ? this.guideForce : null;
+					this.integrate(p, DT, this.path, this.guideStrength * guidanceRamp(futureSeconds), forceOut);
+					if (!forceOut) continue;
+					next.forceX[i] = forceOut.x; next.forceY[i] = forceOut.y;
+				}
 			}
 			next.count = SAMPLES;
 			this.sparePath = this.path;
@@ -195,7 +240,7 @@
 			this.predict();
 		}
 	}
-	const api = { Reactor, DT, TAU, circleFraction, reflect };
+	const api = { Reactor, DT, TAU, circleFraction, reflect, guidanceRamp };
 	if (typeof module !== 'undefined' && module.exports) module.exports = api;
 	root.ReactorCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

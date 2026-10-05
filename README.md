@@ -19,7 +19,7 @@ python3 -m http.server 8000 --bind 0.0.0.0
 - With the canvas focused: **Q / E** rotates; **Right / Down** moves the selected magnet clockwise; **Left / Up** moves it counterclockwise; **Space** pauses.
 - Reflectors stay in fixed positions and rotate. They reflect crossings below 25° relative to their surface; steeper crossings pass through.
 - **Pause**, **Step**, and **Reset experiment** support inspection. Field edits update the forecast even while paused. Reset preserves pause state.
-- Guidance adjusts a soft attraction/alignment to nearby forward-directed segments of the preceding forecast. It has no effect when motion is perpendicular or opposed to the local forecast; zero disables it.
+- Guidance selects only the nearest forecast node and points at a configurable look-ahead point (100 ms by default). Tune its strength, distance reach, heading-angle fade, and forward aim; set strength or reach to 0 to disable guidance. The forecast applies no guidance for its first 2 seconds, eases in over the next second, then uses full force. Enable **Show forecast force vectors** to inspect the guidance accelerations along the forecast.
 
 ## Read the chamber
 
@@ -52,6 +52,6 @@ node --test tests/*.test.js
 
 Scenario solvability and difficulty are **not yet calibrated**. The stable status is implemented, but no known winning control preset is supplied. The next step is deterministic parameter sweeps and playtesting to establish a useful tuning range and a verified solvable scenario.
 
-Guidance chooses nearby forward-aligned segments, scales force by directional agreement, and skips perpendicular or opposed travel. Reforecasting is synchronous and swaps reusable path buffers; the force is bounded, but visual forecast continuity and long-term convergence still need measurement. Future guidance feeds back the previous prediction, so the forecast is an estimate, not a promise of the live path.
+Guidance picks the nearest forecast node, aims at a future node, and fades with cross-track distance and heading error. Forecast feedback is intentionally delayed for its first two seconds, then smoothly introduced over one second to reduce tight self-reinforcing loops. Reforecasting is synchronous and swaps reusable path buffers; visual continuity and long-term convergence still need measurement. Force vectors in debug mode show the guidance acceleration used while generating the displayed forecast, not a promise of the live path.
 
 Dwell is integrated exactly along each sampled line segment using its timestamp interval. The live path uses 120 Hz steps; the forecast stores 40 Hz samples. Curvature and within-step reflector kinks are therefore approximated by chords. Target duties, smoothing, and stability thresholds are initial design choices, not final balance settings.

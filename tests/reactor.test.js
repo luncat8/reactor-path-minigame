@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { Reactor, DT, circleFraction, reflect } = require('../js/reactor.js');
+const { Reactor, DT, circleFraction, reflect, guidanceRamp } = require('../js/reactor.js');
 const near = (a, b, tolerance = 1e-9) => assert.ok(Math.abs(a - b) < tolerance, `${a} ≠ ${b}`);
 
 test('circle dwell handles crossing, partial crossing, stationary, and tangent segments', () => {
@@ -103,6 +103,51 @@ test('guidance is a bounded acceleration gated by forward direction', () => {
 	assert.equal(effect(0, 100), 0);
 	assert.ok(effect(1, 100) < aligned * 0.01, 'near-perpendicular motion should receive almost no guide force');
 	assert.ok(effect(86.6, 50) > 0, 'partly aligned motion may receive a guide force');
+});
+
+test('trajectory guidance aims at the look-ahead node from the single nearest node', () => {
+	const sim = new Reactor();
+	sim.magnets.forEach(magnet => { magnet.strength = 0; });
+	sim.reflectors.length = 0;
+	const guide = { count: 11, x: Float64Array.from({ length: 11 }, (_, i) => i * 10), y: new Float64Array(11) };
+	const particle = { x: 10, y: 10, vx: 100, vy: 0 };
+	const force = sim.guidanceVector(particle, guide, 1);
+	assert.ok(force.x > 0 && force.y < 0);
+	near(force.y / force.x, -0.25);
+
+	sim.guideLookahead = 200;
+	const fartherTarget = sim.guidanceVector(particle, guide, 1);
+	near(fartherTarget.y / fartherTarget.x, -0.125);
+});
+
+test('distance and direction falloffs gate guidance smoothly', () => {
+	const sim = new Reactor();
+	const guide = { count: 11, x: Float64Array.from({ length: 11 }, (_, i) => i * 10), y: new Float64Array(11) };
+	const forceAt = (y, vx, vy) => sim.guidanceVector({ x: 10, y, vx, vy }, guide, 1);
+	const onPath = { ...forceAt(0, 100, 0) };
+	const halfway = { ...forceAt(50, 100, 0) };
+	assert.ok(Math.hypot(halfway.x, halfway.y) > 0);
+	assert.ok(Math.hypot(halfway.x, halfway.y) < Math.hypot(onPath.x, onPath.y));
+	assert.deepEqual(forceAt(100, 100, 0), { x: 0, y: 0 });
+
+	const halfAngle = forceAt(10, Math.SQRT1_2 * 100, Math.SQRT1_2 * 100);
+	near(Math.hypot(halfAngle.x, halfAngle.y), Math.hypot(forceAt(10, 100, 0).x, forceAt(10, 100, 0).y) * 0.5);
+	assert.deepEqual(forceAt(10, 0, 100), { x: 0, y: 0 });
+	assert.deepEqual(forceAt(10, -100, 0), { x: 0, y: 0 });
+
+	sim.guideDirection = 45;
+	assert.deepEqual(forceAt(10, Math.SQRT1_2 * 100, Math.SQRT1_2 * 100), { x: 0, y: 0 });
+});
+
+test('forecast guidance is delayed for two seconds and fades in smoothly over one', () => {
+	near(guidanceRamp(0), 0); near(guidanceRamp(2), 0);
+	near(guidanceRamp(2.5), 0.5); near(guidanceRamp(3), 1); near(guidanceRamp(14), 1);
+	const sim = new Reactor();
+	sim.predict();
+	for (let i = 0; i <= 80; i++) {
+		near(sim.path.forceX[i], 0); near(sim.path.forceY[i], 0);
+	}
+	assert.ok(Math.hypot(sim.path.forceX[120], sim.path.forceY[120]) > 0, 'force is active by the three-second mark');
 });
 
 test('long runs remain finite and bounded across field settings', () => {

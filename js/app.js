@@ -7,7 +7,12 @@
 	const $ = id => document.getElementById(id);
 	const ui = {
 		angle: $('angle'), angleValue: $('angle-value'), strength: $('strength'), strengthValue: $('strength-value'),
-		polarity: $('polarity'), magnetControls: $('magnet-controls'), guidance: $('guidance'), guidanceValue: $('guidance-value'), pause: $('pause'), step: $('step'),
+		polarity: $('polarity'), magnetControls: $('magnet-controls'),
+		guideStrength: $('guidance'), guideStrengthValue: $('guidance-value'),
+		guideDistance: $('guide-distance'), guideDistanceValue: $('guide-distance-value'),
+		guideDirection: $('guide-direction'), guideDirectionValue: $('guide-direction-value'),
+		guideLookahead: $('guide-lookahead'), guideLookaheadValue: $('guide-lookahead-value'),
+		debugGuidance: $('debug-guidance'), pause: $('pause'), step: $('step'),
 		clock: $('clock'), status: $('status'), light: $('status-light'), stability: $('stability'), cooling: $('cooling-value')
 	};
 	let selected = 0, paused = false, accumulator = 0, last = 0, lastUI = 0;
@@ -64,7 +69,13 @@
 	ui.angle.addEventListener('input', () => { instrument().angle = Number(ui.angle.value) * Math.PI / 180; changed(); });
 	ui.strength.addEventListener('input', () => { instrument().strength = Number(ui.strength.value); changed(); });
 	ui.polarity.addEventListener('click', () => { instrument().polarity *= -1; changed(); });
-	ui.guidance.addEventListener('input', () => { sim.guideStrength = Number(ui.guidance.value); changed(); });
+	ui.guideStrength.addEventListener('input', () => { sim.guideStrength = Number(ui.guideStrength.value); changed(); });
+	ui.guideDistance.addEventListener('input', () => { sim.guideDistance = Number(ui.guideDistance.value); changed(); });
+	ui.guideDirection.addEventListener('input', () => { sim.guideDirection = Number(ui.guideDirection.value); changed(); });
+	ui.guideLookahead.addEventListener('input', () => { sim.guideLookahead = Number(ui.guideLookahead.value); changed(); });
+	ui.debugGuidance.addEventListener('change', () => {
+		$('guide-legend').classList.toggle('visible', ui.debugGuidance.checked);
+	});
 	function togglePause() {
 		paused = !paused;
 		accumulator = 0;
@@ -76,7 +87,12 @@
 	ui.step.addEventListener('click', () => { if (paused) { sim.step(); updateUI(); } });
 	$('reset').addEventListener('click', () => {
 		sim.reset(); selected = 0; accumulator = 0;
-		ui.guidance.value = sim.guideStrength;
+		ui.guideStrength.value = sim.guideStrength;
+		ui.guideDistance.value = sim.guideDistance;
+		ui.guideDirection.value = sim.guideDirection;
+		ui.guideLookahead.value = sim.guideLookahead;
+		ui.debugGuidance.checked = false;
+		$('guide-legend').classList.remove('visible');
 		syncControls(); updateUI();
 	});
 
@@ -182,6 +198,23 @@
 
 	function circle(x, y, radius) { ctx.beginPath(); ctx.arc(x, y, radius, 0, TAU); }
 	function line(ax, ay, bx, by) { ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); }
+	function drawGuidanceVectors() {
+		if (!ui.debugGuidance.checked) return;
+		ctx.save(); ctx.strokeStyle = '#f3bd72'; ctx.fillStyle = '#f3bd72'; ctx.lineWidth = 1.2;
+		for (let i = 20; i < sim.path.count; i += 20) {
+			const fx = sim.path.forceX[i], fy = sim.path.forceY[i];
+			const magnitude = Math.hypot(fx, fy);
+			if (magnitude < 0.08) continue;
+			const length = Math.min(16, Math.max(4, magnitude * 0.32));
+			const ux = fx / magnitude, uy = fy / magnitude;
+			const x = sim.path.x[i], y = sim.path.y[i];
+			const tipX = x + ux * length, tipY = y + uy * length;
+			line(x, y, tipX, tipY);
+			line(tipX, tipY, tipX - ux * 3.5 - uy * 2, tipY - uy * 3.5 + ux * 2);
+			line(tipX, tipY, tipX - ux * 3.5 + uy * 2, tipY - uy * 3.5 - ux * 2);
+		}
+		ctx.restore();
+	}
 	function draw() {
 		ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
 		ctx.clearRect(0, 0, width, height);
@@ -209,6 +242,7 @@
 			else ctx.lineTo(sim.path.x[i], sim.path.y[i]);
 		}
 		ctx.stroke();
+		drawGuidanceVectors();
 		ctx.strokeStyle = '#bdeee0a6'; ctx.lineWidth = 1.7; ctx.beginPath();
 		for (let i = 0; i < sim.trailCount; i++) {
 			const j = (sim.trailHead - sim.trailCount + i + sim.trailX.length) % sim.trailX.length;
@@ -250,7 +284,10 @@
 	function signed(value) { return (value >= 0 ? '+' : '−') + Math.abs(value).toFixed(0) + '%'; }
 	function updateUI() {
 		ui.clock.textContent = 'T + ' + sim.time.toFixed(1).padStart(5, '0') + ' s';
-		ui.guidanceValue.textContent = Math.round(sim.guideStrength * 100) + '%';
+		ui.guideStrengthValue.textContent = Math.round(sim.guideStrength * 100) + '%';
+		ui.guideDistanceValue.textContent = sim.guideDistance > 0 ? sim.guideDistance + ' px' : 'OFF';
+		ui.guideDirectionValue.textContent = sim.guideDirection + '°';
+		ui.guideLookaheadValue.textContent = sim.guideLookahead + ' ms';
 		for (let i = 0; i < sim.targets.length; i++) {
 			const t = sim.targets[i];
 			meters[i].label.textContent = signed((t.actual / t.desired - 1) * 100);

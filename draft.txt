@@ -21,3 +21,28 @@
 для оптимизации можно сохранять временные метки просчитанной праектории и на пересечении узлов траектории с мишенями - по временным меткам рассчитывать время прохождения пучка частиц через мишень - таким образом определять силу воздействия
 
 
+# improve trajectory guidance force
+
+1.
+we dont need small loops so next 2 seconds of trajectory should have zero force, then 1 sec of smooth fade in, then 100% force.
+
+2.
+i think only nearest node of trajectory should apply force
+
+3.
+checkbox debug mode to show vector of guidance forces along trajectory
+
+4.
+2 sliders instead of 1:
+one for distance factor: fall from 100% to 0 at distance of X (default 100px)
+second for direction factor: how fast it fade to 0, when angle direction is not same.
+
+5.
+need to think what should force direction be. in case of parallel fly of particle to trajectory. i think force should not be same as trajectory direction. and not to the nearest trajectory node. but direct to NEXTtrajectory node on some distance like 100ms forward of nearest trajectory node.
+this looks difficult to think what should be proper force direction to gently guide particle to align with trajectory and finally form stable loop.
+
+feel free to make experments and/or add more sliders or approach selectors.
+
+
+
+

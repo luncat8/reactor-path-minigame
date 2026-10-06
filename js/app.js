@@ -1,13 +1,10 @@
 (function () {
 	'use strict';
 	const { Reactor, DT, TAU } = ReactorCore;
-	// Trajectory guidance debug. The overlay draws the guide's own geometry: the green ring is the
-	// nearest point of the committed route — the point the steering force pulls toward — the amber
-	// dot is the look-ahead point one forward-aim interval further along that route, and the white
-	// arrow is the live force. Tracking dust is not drawn: below this magnitude the pull is a
-	// fraction of a percent of the field force, so the arrow is skipped while the ring, the dashed
-	// cross-track line and the numeric readout still report it honestly.
+	// The debug overlay shows the selected return state and all three vectors used to judge it:
+	// target movement, current movement, and the resulting phase-matching force.
 	const GUIDE_ARROW_MINIMUM = 0.25;
+	const MOVEMENT_VECTOR_TIME = 0.22;
 	const sim = new Reactor();
 	const canvas = document.getElementById('c');
 	const ctx = canvas.getContext('2d');
@@ -18,8 +15,8 @@
 		guideStrength: $('guidance'), guideStrengthValue: $('guidance-value'),
 		guideDistance: $('guide-distance'), guideDistanceValue: $('guide-distance-value'),
 		guideDirection: $('guide-direction'), guideDirectionValue: $('guide-direction-value'),
-		guideLookahead: $('guide-lookahead'), guideLookaheadValue: $('guide-lookahead-value'),
-		guideMemory: $('guide-memory'), guideMemoryValue: $('guide-memory-value'), guideReadout: $('guide-readout'),
+		guideVelocity: $('guide-velocity'), guideVelocityValue: $('guide-velocity-value'),
+		guideDelay: $('guide-delay'), guideDelayValue: $('guide-delay-value'), guideReadout: $('guide-readout'),
 		debugGuidance: $('debug-guidance'), pause: $('pause'), step: $('step'),
 		clock: $('clock'), status: $('status'), light: $('status-light'), stability: $('stability'), cooling: $('cooling-value')
 	};
@@ -80,8 +77,8 @@
 	ui.guideStrength.addEventListener('input', () => { sim.guideStrength = Number(ui.guideStrength.value); changed(); });
 	ui.guideDistance.addEventListener('input', () => { sim.guideDistance = Number(ui.guideDistance.value); changed(); });
 	ui.guideDirection.addEventListener('input', () => { sim.guideDirection = Number(ui.guideDirection.value); changed(); });
-	ui.guideLookahead.addEventListener('input', () => { sim.guideLookahead = Number(ui.guideLookahead.value); changed(); });
-	ui.guideMemory.addEventListener('input', () => { sim.planLag = Number(ui.guideMemory.value); changed(); });
+	ui.guideVelocity.addEventListener('input', () => { sim.guideVelocity = Number(ui.guideVelocity.value); changed(); });
+	ui.guideDelay.addEventListener('input', () => { sim.guideDelay = Number(ui.guideDelay.value); changed(); });
 	ui.debugGuidance.addEventListener('change', () => {
 		$('guide-legend').classList.toggle('visible', ui.debugGuidance.checked);
 		ui.guideReadout.classList.toggle('visible', ui.debugGuidance.checked);
@@ -101,10 +98,11 @@
 		ui.guideStrength.value = sim.guideStrength;
 		ui.guideDistance.value = sim.guideDistance;
 		ui.guideDirection.value = sim.guideDirection;
-		ui.guideLookahead.value = sim.guideLookahead;
-		ui.guideMemory.value = sim.planLag;
+		ui.guideVelocity.value = sim.guideVelocity;
+		ui.guideDelay.value = sim.guideDelay;
 		ui.debugGuidance.checked = false;
 		$('guide-legend').classList.remove('visible');
+		ui.guideReadout.classList.remove('visible');
 		syncControls(); updateUI();
 	});
 
@@ -232,35 +230,30 @@
 		}
 		ctx.restore();
 	}
-	function drawRoute() {
-		if (!ui.debugGuidance.checked || sim.reference.count < 2) return;
-		ctx.save(); ctx.strokeStyle = '#a08cf2'; ctx.lineWidth = 1.1; ctx.setLineDash([5, 4]);
-		ctx.beginPath();
-		for (let i = 0; i < sim.reference.count; i++) {
-			if (i === 0) ctx.moveTo(sim.reference.x[i], sim.reference.y[i]);
-			else ctx.lineTo(sim.reference.x[i], sim.reference.y[i]);
-		}
-		ctx.stroke(); ctx.restore();
+	function movementArrow(x, y, vx, vy, colour) {
+		const speed = Math.hypot(vx, vy);
+		if (speed < 1e-6) return;
+		ctx.strokeStyle = colour;
+		ctx.fillStyle = colour;
+		ctx.lineWidth = 1.6;
+		arrow(x, y, vx / speed, vy / speed, Math.max(10, Math.min(55, speed * MOVEMENT_VECTOR_TIME)), 5);
 	}
 	function drawLiveGuidance() {
 		if (!ui.debugGuidance.checked) return;
 		const d = sim.liveDebug;
-		if (sim.guideStrength <= 0 || sim.guideDistance <= 0 || sim.guideDirection <= 0 || d.nearest < 0) return;
 		ctx.save();
-		// Cross-track error: from the beam to the nearest point of the committed route.
+		movementArrow(sim.particle.x, sim.particle.y, sim.particle.vx, sim.particle.vy, '#70e2d3');
+		if (sim.guideStrength <= 0 || sim.guideDistance <= 0 || sim.guideDirection <= 0 || d.target < 0) { ctx.restore(); return; }
+		// The dashed line is position error. The two movement arrows expose whether this return pass
+		// has a useful phase match; the white arrow is the actual combined position/velocity force.
 		ctx.strokeStyle = '#f3bd7290'; ctx.lineWidth = 1.1; ctx.setLineDash([3, 3]);
-		line(sim.particle.x, sim.particle.y, d.nx, d.ny);
+		line(sim.particle.x, sim.particle.y, d.tx, d.ty);
 		ctx.setLineDash([]);
-		// Green ring: the nearest route point, the target the steering force pulls toward. Amber dot:
-		// the look-ahead point one forward-aim interval further along the route, which the aim uses to
-		// follow curvature. On a route-tracking beam the ring sits on the particle and no arrow is
-		// drawn — the guide has nothing to correct.
-		circle(d.nx, d.ny, 5.5); ctx.strokeStyle = '#8bff9e'; ctx.lineWidth = 1.5; ctx.stroke();
-		circle(d.tx, d.ty, 3); ctx.fillStyle = '#f3bd72'; ctx.fill();
-		// White arrow: the steering acceleration the beam feels right now (never backwards).
+		circle(d.tx, d.ty, 6); ctx.strokeStyle = '#8bff9e'; ctx.lineWidth = 1.8; ctx.stroke();
+		movementArrow(d.tx, d.ty, d.tvx, d.tvy, '#8bff9e');
 		const magnitude = Math.hypot(sim.liveForce.x, sim.liveForce.y);
 		if (magnitude >= GUIDE_ARROW_MINIMUM) {
-			ctx.strokeStyle = '#ffffff'; ctx.fillStyle = '#ffffff'; ctx.lineWidth = 1.9;
+			ctx.strokeStyle = '#ffffff'; ctx.fillStyle = '#ffffff'; ctx.lineWidth = 2;
 			arrow(sim.particle.x, sim.particle.y, sim.liveForce.x / magnitude, sim.liveForce.y / magnitude,
 				forceArrowLength(magnitude, 10, 80), 5.5);
 		}
@@ -293,7 +286,6 @@
 			else ctx.lineTo(sim.path.x[i], sim.path.y[i]);
 		}
 		ctx.stroke();
-		drawRoute();
 		drawGuidanceVectors();
 		ctx.strokeStyle = '#bdeee0a6'; ctx.lineWidth = 1.7; ctx.beginPath();
 		for (let i = 0; i < sim.trailCount; i++) {
@@ -340,8 +332,8 @@
 		ui.guideStrengthValue.textContent = Math.round(sim.guideStrength * 100) + '%';
 		ui.guideDistanceValue.textContent = sim.guideDistance > 0 ? sim.guideDistance + ' px' : 'OFF';
 		ui.guideDirectionValue.textContent = sim.guideDirection + '°';
-		ui.guideLookaheadValue.textContent = sim.guideLookahead + ' ms';
-		ui.guideMemoryValue.textContent = sim.planLag > 0 ? sim.planLag.toFixed(1) + ' s' : 'OFF';
+		ui.guideVelocityValue.textContent = sim.guideVelocity.toFixed(2) + '×';
+		ui.guideDelayValue.textContent = sim.guideDelay.toFixed(1) + ' s';
 		updateGuideReadout();
 		for (let i = 0; i < sim.targets.length; i++) {
 			const t = sim.targets[i];
@@ -358,9 +350,10 @@
 	function updateGuideReadout() {
 		if (!ui.debugGuidance.checked) { ui.guideReadout.textContent = ''; return; }
 		const d = sim.liveDebug;
-		if (d.nearest < 0) { ui.guideReadout.textContent = 'no forward-aligned route point — guidance idle'; return; }
-		ui.guideReadout.textContent = 'route ' + d.age.toFixed(1) + ' s old · nearest ' + d.distance.toFixed(2) +
-			' px · heading ' + Math.round(d.angle * 180 / Math.PI) + '° · force ' + d.magnitude.toFixed(2) +
+		if (d.target < 0) { ui.guideReadout.textContent = 'no compatible future return point within reach — guidance idle'; return; }
+		ui.guideReadout.textContent = 'target +' + d.lead.toFixed(1) + ' s · position ' + d.distance.toFixed(1) +
+			' px · movement Δ ' + d.speedError.toFixed(1) + ' px/s / ' + Math.round(d.angle * 180 / Math.PI) +
+			'° · force ' + d.magnitude.toFixed(2) + (d.timeFactor < 1 ? ' · future fade ' + Math.round(d.timeFactor * 100) + '%' : '') +
 			(d.magnitude < GUIDE_ARROW_MINIMUM ? ' (below arrow scale)' : '');
 	}
 	function frame(now) {

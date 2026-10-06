@@ -26,7 +26,7 @@ canvas { display: block; width: 100%; aspect-ratio: 800 / 650; touch-action: non
 .legend span { display: flex; align-items: center; gap: 7px; }
 .line { width: 16px; height: 1px; display: inline-block; }.cyan { background: var(--cyan); }.white { background: #edf9f4; }
 .zone { width: 9px; height: 9px; border: 1px solid #c88b61; border-radius: 50%; }
-#guide-legend { display: none; }#guide-legend.visible { display: flex; }#guide-legend .line { background: #f3bd72; }#guide-legend .line.live { background: #ffffff; margin-left: 4px; }#guide-legend .line.route { background: #a08cf2; margin-right: 4px; }#guide-legend .ring { width: 8px; height: 8px; border: 1.5px solid #8bff9e; border-radius: 50%; }#guide-legend .lookahead { width: 6px; height: 6px; background: #f3bd72; border-radius: 50%; }
+#guide-legend { display: none; }#guide-legend.visible { display: flex; }#guide-legend .line { background: #f3bd72; }#guide-legend .line.live { background: #ffffff; margin-left: 4px; }#guide-legend .line.current { background: #70e2d3; margin-left: 4px; }#guide-legend .line.target { background: #8bff9e; margin-left: 4px; }#guide-legend .ring { width: 8px; height: 8px; border: 1.5px solid #8bff9e; border-radius: 50%; }
 .readout { display: none; font: 10px monospace; color: #f3bd72; }
 .transport { display: flex; align-items: center; gap: 8px; padding: 15px 18px; border-top: 1px solid var(--line); }
 .transport span { margin-left: auto; font: 9px monospace; color: #60797d; }

@@ -86,251 +86,185 @@ test('magnet position, orientation, and polarity influence forecasts', () => {
 });
 
 
-// A synthetic reference plan: points sampled at the forecast interval, straight or hand-shaped.
-function makeRoute(points) {
-	const count = points.length;
-	const route = { count, x: new Float64Array(count), y: new Float64Array(count), t: new Float64Array(count), s: new Float64Array(count) };
-	for (let i = 0; i < count; i++) { route.x[i] = points[i][0]; route.y[i] = points[i][1]; route.t[i] = i / 40; }
-	for (let i = 1; i < count; i++) route.s[i] = route.s[i - 1] + Math.hypot(route.x[i] - route.x[i - 1], route.y[i] - route.y[i - 1]);
+// Synthetic trajectory states are [x, y, absolute time, vx, vy].
+function makeRoute(states) {
+	const count = states.length;
+	const route = {
+		count,
+		x: new Float64Array(count), y: new Float64Array(count),
+		vx: new Float64Array(count), vy: new Float64Array(count), t: new Float64Array(count)
+	};
+	for (let i = 0; i < count; i++) {
+		route.x[i] = states[i][0]; route.y[i] = states[i][1]; route.t[i] = states[i][2];
+		route.vx[i] = states[i][3]; route.vy[i] = states[i][4];
+	}
 	return route;
 }
-const line = (spacing, count) => makeRoute(Array.from({ length: count }, (_, i) => [i * spacing, 0]));
-const newGuide = () => ({ segment: -1, x: 0, y: 0, s: 0, speed: 0, distance: 0, wide: true });
 
-test('the guide point is the true projection onto the reference, not the nearest sample', () => {
+const targetState = () => ({
+	segment: -1, x: 0, y: 0, vx: 0, vy: 0, time: 0, lead: 0,
+	distance: 0, angle: 0, speedError: 0, timeFactor: 0, score: Infinity
+});
+
+function horizontalRoute(y = 0, speed = 100) {
+	return makeRoute([[0, y, 3, speed, 0], [100, y, 4, speed, 0]]);
+}
+
+test('guide target is interpolated on a segment rather than snapped to a sample', () => {
 	const sim = new Reactor();
-	sim.magnets.forEach(magnet => { magnet.strength = 0; });
-	sim.reflectors.length = 0;
-	const route = line(3.625, 41);           // 1 s of travel at 145 px/s
-	const state = newGuide();
+	const target = targetState();
+	const found = sim.findGuideTarget({ x: 20, y: 8, vx: 100, vy: 0 }, horizontalRoute(), 0, target);
+	assert.equal(found, true);
+	near(target.x, 20);
+	near(target.y, 0);
+	near(target.distance, 8);
+	near(target.vx, 100);
+	near(target.vy, 0);
+	assert.ok(target.lead >= sim.guideDelay + 1, 'the selected state has completed the one-second fade');
+});
+
+test('the near future is excluded and the target is always later than the query', () => {
+	const sim = new Reactor();
+	sim.guideDelay = 2;
+	const route = makeRoute([
+		[0, 0, -2, 100, 0], [20, 0, -1, 100, 0],
+		[80, 30, 2.1, 100, 0], [120, 30, 4, 100, 0]
+	]);
+	const target = targetState();
+	assert.equal(sim.findGuideTarget({ x: 10, y: 2, vx: 100, vy: 0 }, route, 0, target), true);
+	assert.ok(target.time > 2, `target time ${target.time} must be beyond the excluded future`);
+	assert.ok(target.y > 10, 'a geometrically closer past segment must not be selected');
+});
+
+test('phase-space selection rejects a closer crossing with the wrong movement', () => {
+	const sim = new Reactor();
+	const route = makeRoute([
+		[-20, 1, 3, -100, 0], [20, 1, 4, -100, 0],
+		[-20, 8, 5, 100, 0], [20, 8, 6, 100, 0]
+	]);
+	const target = targetState();
+	assert.equal(sim.findGuideTarget({ x: 0, y: 0, vx: 100, vy: 0 }, route, 0, target), true);
+	near(target.y, 8);
+	assert.equal(target.segment, 2);
+	near(target.angle, 0);
+});
+
+test('phase-space score can prefer matching speed over a spatially closer pass', () => {
+	const sim = new Reactor();
+	const route = makeRoute([
+		[-20, 1, 3, 300, 0], [20, 1, 4, 300, 0],
+		[-20, 10, 5, 100, 0], [20, 10, 6, 100, 0]
+	]);
+	const target = targetState();
+	sim.findGuideTarget({ x: 0, y: 0, vx: 100, vy: 0 }, route, 0, target);
+	near(target.y, 10);
+	near(target.speedError, 0);
+});
+
+test('opposing and perpendicular trajectory passes never guide the particle', () => {
+	const sim = new Reactor();
+	const opposing = makeRoute([[0, 0, 3, -100, 0], [100, 0, 4, -100, 0]]);
+	const perpendicular = makeRoute([[0, 0, 3, 0, 100], [100, 0, 4, 0, 100]]);
+	const particle = { x: 20, y: 10, vx: 100, vy: 0 };
+	assert.equal(sim.findGuideTarget(particle, opposing, 0, targetState()), false);
+	assert.equal(sim.findGuideTarget(particle, perpendicular, 0, targetState()), false);
+	near(Math.hypot(...Object.values(sim.guidanceVector(particle, opposing, 0, 1, {}))), 0);
+});
+
+test('position matching pulls toward the green target and is idle in the target state', () => {
+	const sim = new Reactor();
+	const route = horizontalRoute();
 	const debug = {};
-	sim.guidanceVector({ x: 20, y: 8, vx: 145, vy: 0 }, route, 1, debug, state);
-	near(state.x, 20, 1e-9);                 // between samples 5 and 6, not on either node
-	near(state.y, 0, 1e-9);
-	near(state.distance, 8, 1e-9);
-	// The aim point sits one look-ahead interval of arc length further along the route.
-	near(debug.tx, 20 + 0.1 * 145, 1e-9);
-	near(debug.ty, 0, 1e-9);
-	near(debug.angle, 0, 1e-9);
+	const force = sim.guidanceVector({ x: 20, y: 20, vx: 100, vy: 0 }, route, 0, 1, debug);
+	near(force.x, 0);
+	assert.ok(force.y < 0);
+	near(debug.tx, 20); near(debug.ty, 0);
+	near(debug.tvx, 100); near(debug.tvy, 0);
+	const idle = sim.guidanceVector({ x: 20, y: 0, vx: 100, vy: 0 }, route, 0, 1, {});
+	near(idle.x, 0); near(idle.y, 0);
 });
 
-test('guidance is exactly lateral: it can never thrust, brake or point backwards', () => {
+test('movement matching changes velocity even when position already matches', () => {
 	const sim = new Reactor();
-	sim.magnets.forEach(magnet => { magnet.strength = 0; });
-	sim.reflectors.length = 0;
-	const route = line(3.625, 121);
-	const speed = 145;
-	let checked = 0, active = 0;
-	for (let offset = -60; offset <= 60; offset += 7) {
-		for (let degrees = -80; degrees <= 80; degrees += 9) {
-			const angle = degrees * Math.PI / 180;
-			const particle = { x: 30, y: offset, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed };
-			const state = newGuide();
-			const force = sim.guidanceVector(particle, route, 1, null, state);
-			// Perpendicular by construction: no component along the velocity, so the force cannot
-			// change the beam's speed and its angle to the velocity can never leave 0..90 degrees.
-			const along = force.x * particle.vx + force.y * particle.vy;
-			assert.ok(Math.abs(along) < 1e-9 * speed * Math.max(1, Math.hypot(force.x, force.y)),
-				`force is not lateral: ${along}`);
-			checked++;
-			if (Math.hypot(force.x, force.y) > 0) active++;
-		}
-	}
-	assert.ok(checked > 100);
-	assert.ok(active > 80, 'most of the grid should actually steer');
-});
-
-test('the plan schedule cannot drag the nearest point off the beam', () => {
-	const sim = new Reactor();
-	// The route is geometrically under the beam, but its timestamps claim the plan is ten seconds old:
-	// anything that seeds the projection on "the sample scheduled for now" projects the ring far away.
-	const route = line(3.625, 41);
-	for (let i = 0; i < route.count; i++) route.t[i] = -10 + i;
-	const state = newGuide();
+	const route = makeRoute([[0, 0, 3, 100, 30], [100, 0, 4, 100, 30]]);
 	const debug = {};
-	const force = sim.guidanceVector({ x: 20, y: 0, vx: 145, vy: 0 }, route, 1, debug, state);
-	near(state.x, 20, 1e-9);
-	near(state.y, 0, 1e-9);
-	near(debug.distance, 0, 1e-12);
-	near(Math.hypot(force.x, force.y), 0, 1e-12);
+	const force = sim.guidanceVector({ x: 20, y: 0, vx: 100, vy: 0 }, route, 0, 1, debug);
+	near(force.x, 0);
+	assert.ok(force.y > 0, 'force should turn the particle toward the target movement vector');
+	near(debug.distance, 0);
+	near(debug.speedError, 30);
 });
 
-test('the steering force points from the beam at the nearest route point', () => {
+test('distance and heading controls smoothly fade the state-matching force', () => {
 	const sim = new Reactor();
-	const route = line(3.625, 121);
-	const speed = 145;
-	for (const offset of [4, 12, 30]) {
-		const particle = { x: 30, y: offset, vx: speed, vy: 0 };
-		const state = newGuide();
-		const debug = {};
-		const force = sim.guidanceVector(particle, route, 1, debug, state);
-		const ringX = debug.nx - particle.x, ringY = debug.ny - particle.y;
-		const ringLength = Math.hypot(ringX, ringY);
-		near(ringLength, offset, 1e-9);                       // the ring is the true nearest point
-		near(debug.tx - debug.nx, 0.1 * speed, 1e-9);         // the look-ahead dot sits one aim ahead
-		// A parallel beam is pushed exactly along the line to the ring.
-		const forceLength = Math.hypot(force.x, force.y);
-		near(force.x / forceLength, ringX / ringLength, 1e-9);
-		near(force.y / forceLength, ringY / ringLength, 1e-9);
-		assert.ok(force.y < 0);
-	}
-});
-
-test('an offset beam is pulled back to the route, an on-route beam needs no force', () => {
-	const sim = new Reactor();
-	sim.magnets.forEach(magnet => { magnet.strength = 0; });
-	sim.reflectors.length = 0;
-	const route = line(3.625, 121);
-	const tracking = sim.guidanceVector({ x: 30, y: 0, vx: 145, vy: 0 }, route, 1, null, newGuide(), 4);
-	near(tracking.x, 0, 1e-9); near(tracking.y, 0, 1e-9);
-	const offset = sim.guidanceVector({ x: 30, y: 25, vx: 145, vy: 0 }, route, 1, null, newGuide(), 4);
-	near(offset.x, 0, 1e-9);
-	assert.ok(offset.y < 0, 'an offset beam is pulled back toward the route');
-	// gain × lateral correction, faded by how far the beam sits inside the reach
-	near(Math.abs(offset.y), 25 * 0.5 * 0.84375, 1e-9);
-});
-
-test('opposing and perpendicular passes of a self-crossing route cannot capture the beam', () => {
-	const sim = new Reactor();
-	// Outbound leg at y = 3, return leg at y = 0. A +x beam sits next to the return leg, which is
-	// physically closer, but only the outbound leg continues its heading.
-	const route = makeRoute([[0, 3], [10, 3], [20, 3], [20, 0], [10, 0], [0, 0], [-10, 0]]);
-	const state = newGuide();
-	const outbound = { x: 0, y: 1, vx: 100, vy: 0 };
-	sim.guidanceVector(outbound, route, 1, null, state, 0);
-	near(state.y, 3, 1e-9);
-	assert.equal(state.segment, 0);
-	const returning = { x: 0, y: 1, vx: -100, vy: 0 };
-	const reverseState = newGuide();
-	sim.guidanceVector(returning, route, 1, null, reverseState, 5);
-	assert.ok(reverseState.y <= 1e-9, 'a −x beam locks onto the returning pass');
-
-	// A beam flying straight at a +x route (perpendicular) receives nothing at all.
-	const perpendicular = { x: 30, y: -40, vx: 0, vy: 145 };
-	const perpendicularState = newGuide();
-	const force = sim.guidanceVector(perpendicular, line(3.625, 121), 1, null, perpendicularState, 4);
-	assert.equal(perpendicularState.segment, -1);
-	near(Math.hypot(force.x, force.y), 0);
-});
-
-test('distance and heading falloffs gate guidance smoothly', () => {
-	const sim = new Reactor();
-	sim.magnets.forEach(magnet => { magnet.strength = 0; });
-	sim.reflectors.length = 0;
-	const route = line(3.625, 241);
+	sim.guideVelocity = 0;
+	const route = horizontalRoute();
 	const magnitude = (offset, degrees) => {
 		const angle = degrees * Math.PI / 180;
-		const state = newGuide();
-		const force = sim.guidanceVector({ x: 30, y: offset, vx: Math.cos(angle) * 145, vy: Math.sin(angle) * 145 }, route, 1, null, state, 8);
+		const force = sim.guidanceVector({ x: 20, y: offset, vx: Math.cos(angle) * 100, vy: Math.sin(angle) * 100 }, route, 0, 1, {});
 		return Math.hypot(force.x, force.y);
 	};
 	const near20 = magnitude(20, 0);
 	assert.ok(near20 > 0);
-	assert.ok(magnitude(90, 0) < near20, 'the pull shrinks toward the reach');
+	assert.ok(magnitude(90, 0) < near20);
 	near(magnitude(100, 0), 0);
-	assert.ok(magnitude(20, 60) < near20, 'heading mismatch fades the pull');
+	assert.ok(magnitude(20, 60) < near20);
 	near(magnitude(20, 90), 0);
 	sim.guideDirection = 45;
 	near(magnitude(20, 45), 0);
 });
 
-test('the route is a committed plan held for the selected memory', () => {
-	const commitInterval = planLag => {
-		const sim = new Reactor();
-		sim.planLag = planLag;
-		for (let i = 0; i < 120 * 3; i++) sim.step();
-		let commits = 0, first = sim.referenceTime, last = first;
-		for (let i = 0; i < 120 * 9; i++) {
-			sim.step();
-			if (sim.referenceTime === last) continue;
-			last = sim.referenceTime;
-			commits++;
-		}
-		assert.ok(commits > 0, 'the route is refreshed');
-		return { interval: (last - first) / commits, age: sim.referenceAge, sim };
-	};
-	const held = commitInterval(1.2);
-	near(held.interval, 1.2, 0.01);                       // memory holds roughly two refreshes
-	assert.ok(held.age <= 1.2 + 1e-9);
-	const live = commitInterval(0);
-	near(live.interval, 0.6, 0.01);                       // memory off: every refresh is adopted
-	near(live.age, 0, 0.6);
-});
-
-test('a held route resists deviation, while memory off adopts it at the next refresh', () => {
-	const deviationAt = planLag => {
-		const sim = new Reactor();
-		sim.planLag = planLag;
-		for (let i = 0; i < 120 * 20; i++) sim.step();
-		while (sim.referenceAge > 0.1) sim.step();       // start from a freshly committed route
-		const speed = Math.hypot(sim.particle.vx, sim.particle.vy);
-		sim.particle.x += -sim.particle.vy / speed * 15;
-		sim.particle.y += sim.particle.vx / speed * 15;
-		sim.liveGuide.segment = -1; sim.liveGuide.wide = true;
-		const seen = [];
-		for (let i = 0; i < 120 * 1.6; i++) {
-			sim.step();
-			if (i % 60 === 59) seen.push(Number(sim.liveDebug.distance.toFixed(2)));
-		}
-		return seen;
-	};
-	const held = deviationAt(1.2);
-	const live = deviationAt(0);
-	assert.ok(held[0] > 4, `the held route must still see the deviation: ${held}`);
-	assert.ok(live[0] <= 0.5, `memory off adopts the beam at the next refresh: ${live}`);
-});
-
-test('a field change is resisted while the route is held and adopted once the memory expires', () => {
-	const run = planLag => {
-		const sim = new Reactor();
-		sim.planLag = planLag;
-		for (let i = 0; i < 120 * 25; i++) sim.step();
-		while (sim.referenceAge > 0.1) sim.step();
-		sim.magnets[0].polarity *= -1; sim.predict();
-		let cross = 0, samples = 0, backwards = 0;
-		for (let i = 0; i < 120 * 2; i++) {
-			const vx = sim.particle.vx, vy = sim.particle.vy, speed = Math.hypot(vx, vy);
-			sim.step();
-			cross += sim.liveDebug.distance; samples++;
-			// Pair the published force with the published velocity: it is computed from the position the
-			// beam now stands at, so it must be exactly perpendicular to the current velocity.
-			const px = sim.particle.vx, py = sim.particle.vy, now = Math.hypot(px, py);
-			const force = Math.hypot(sim.liveForce.x, sim.liveForce.y);
-			if (force < 1e-9 || now < 1e-9) continue;
-			if ((sim.liveForce.x * px + sim.liveForce.y * py) / (force * now) < -1e-9) backwards++;
-		}
-		return { cross: cross / samples, backwards, sim };
-	};
-	const held = run(1.2);
-	const live = run(0);
-	assert.ok(held.cross > live.cross + 0.05, `held route should keep real error: ${held.cross} vs ${live.cross}`);
-	assert.equal(held.backwards, 0);
-	assert.equal(live.backwards, 0);
-});
-
-test('the anchor follows the route it is flying instead of jumping between passes', () => {
+test('the one-second temporal fade applies after the excluded future', () => {
 	const sim = new Reactor();
-	let previous = -1, previousRoute = -1, largestAdvance = 0;
-	for (let i = 0; i < 120 * 60; i++) {
-		sim.step();
-		const guide = sim.liveGuide;
-		if (guide.segment < 0 || sim.liveDebug.nearest < 0) { previous = -1; continue; }
-		// A commit re-seats the anchor on a different plan; continuity is measured inside one route.
-		if (previous >= 0 && previousRoute === sim.referenceTime) largestAdvance = Math.max(largestAdvance, Math.abs(guide.s - previous));
-		previous = guide.s; previousRoute = sim.referenceTime;
-	}
-	// One step at 145 px/s advances 1.2 px of arc; a crossing pass would move the anchor tens of pixels.
-	assert.ok(largestAdvance < 12, `anchor jumped ${largestAdvance.toFixed(1)} px in one step`);
+	sim.guideDelay = 2;
+	const route = makeRoute([[0, 0, 2.5, 100, 0], [0.01, 0, 2.51, 100, 0]]);
+	const target = targetState();
+	assert.equal(sim.findGuideTarget({ x: 0, y: 10, vx: 100, vy: 0 }, route, 0, target), true);
+	assert.ok(target.timeFactor > 0 && target.timeFactor < 1);
+	near(target.timeFactor, 0.5, 0.02);
 });
 
-test('long runs remain finite and bounded across field settings', () => {
-	for (const strength of [0, 1, 2]) {
-		for (const planLag of [0, 1.2]) {
+test('debug target, movement vectors, and live force describe one current state', () => {
+	const sim = new Reactor();
+	for (let i = 0; i < 120; i++) sim.step();
+	const d = sim.liveDebug;
+	assert.ok(d.target >= 0);
+	assert.ok(d.lead > sim.guideDelay);
+	near(Math.hypot(d.tx - sim.particle.x, d.ty - sim.particle.y), d.distance, 1e-6);
+	assert.ok(Number.isFinite(d.tvx) && Number.isFinite(d.tvy));
+	near(Math.hypot(sim.liveForce.x, sim.liveForce.y), d.magnitude, 1e-9);
+});
+
+test('forecast stores movement states and force samples without mutating live state', () => {
+	const sim = new Reactor();
+	const before = { ...sim.particle };
+	sim.predict();
+	assert.deepEqual(sim.particle, before);
+	for (let i = 0; i < sim.path.count; i++) {
+		assert.ok(Number.isFinite(sim.path.vx[i]) && Number.isFinite(sim.path.vy[i]));
+		assert.ok(Number.isFinite(sim.path.forceX[i]) && Number.isFinite(sim.path.forceY[i]));
+	}
+	near(sim.path.vx[0], before.vx);
+	near(sim.path.vy[0], before.vy);
+});
+
+test('forecast refresh keeps target time in the future rather than retaining past nodes', () => {
+	const sim = new Reactor();
+	for (let i = 0; i < 120 * 8; i++) {
+		sim.step();
+		if (sim.liveDebug.target < 0) continue;
+		assert.ok(sim.path.t[sim.liveDebug.target + 1] > sim.time + sim.guideDelay);
+		assert.ok(sim.liveDebug.lead > sim.guideDelay);
+	}
+});
+
+test('long runs remain finite and bounded across guide settings', () => {
+	for (const strength of [0, 1.5]) {
+		for (const delay of [1, 3]) {
 			const sim = new Reactor();
-			sim.guideStrength = strength === 2 ? 1.5 : strength;
-			sim.planLag = planLag;
-			for (const m of sim.magnets) m.strength = strength;
-			for (let i = 0; i < 120 * 60; i++) {
+			sim.guideStrength = strength;
+			sim.guideDelay = delay;
+			for (let i = 0; i < 120 * 20; i++) {
 				sim.step();
 				assert.ok(Number.isFinite(sim.particle.vx) && Number.isFinite(sim.particle.vy));
 				assert.ok(Math.abs(sim.particle.x) < 500 && Math.abs(sim.particle.y) < 400);
@@ -339,7 +273,7 @@ test('long runs remain finite and bounded across field settings', () => {
 	}
 });
 
-test('targets and cooling zones do not alter the particle dynamics', () => {
+test('targets and cooling zones do not alter particle dynamics', () => {
 	const a = new Reactor(), b = new Reactor();
 	b.targets.length = 0; b.zones.length = 0;
 	for (let i = 0; i < 300; i++) { a.step(); b.step(); }

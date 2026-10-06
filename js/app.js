@@ -1,6 +1,13 @@
 (function () {
 	'use strict';
 	const { Reactor, DT, TAU } = ReactorCore;
+	// Trajectory guidance debug. The overlay draws the guide's own geometry: the green ring is the
+	// nearest point of the committed route — the point the steering force pulls toward — the amber
+	// dot is the look-ahead point one forward-aim interval further along that route, and the white
+	// arrow is the live force. Tracking dust is not drawn: below this magnitude the pull is a
+	// fraction of a percent of the field force, so the arrow is skipped while the ring, the dashed
+	// cross-track line and the numeric readout still report it honestly.
+	const GUIDE_ARROW_MINIMUM = 0.25;
 	const sim = new Reactor();
 	const canvas = document.getElementById('c');
 	const ctx = canvas.getContext('2d');
@@ -219,8 +226,8 @@
 		ctx.save(); ctx.strokeStyle = '#f3bd72'; ctx.fillStyle = '#f3bd72'; ctx.lineWidth = 1.3;
 		for (let i = 20; i < sim.path.count; i += 20) {
 			const magnitude = Math.hypot(sim.path.forceX[i], sim.path.forceY[i]);
-			if (magnitude < 0.04) continue;
-			const length = forceArrowLength(magnitude, 6, 44);
+			if (magnitude < GUIDE_ARROW_MINIMUM) continue;
+			const length = forceArrowLength(magnitude, 8, 44);
 			arrow(sim.path.x[i], sim.path.y[i], sim.path.forceX[i] / magnitude, sim.path.forceY[i] / magnitude, length, 4);
 		}
 		ctx.restore();
@@ -240,19 +247,22 @@
 		const d = sim.liveDebug;
 		if (sim.guideStrength <= 0 || sim.guideDistance <= 0 || sim.guideDirection <= 0 || d.nearest < 0) return;
 		ctx.save();
-		// Cross-track error: from the beam to its projection on the committed route.
+		// Cross-track error: from the beam to the nearest point of the committed route.
 		ctx.strokeStyle = '#f3bd7290'; ctx.lineWidth = 1.1; ctx.setLineDash([3, 3]);
 		line(sim.particle.x, sim.particle.y, d.nx, d.ny);
 		ctx.setLineDash([]);
-		// Hollow ring: the projected route point. Filled dot: the point one look-ahead ahead of it.
-		circle(d.nx, d.ny, 5.5); ctx.strokeStyle = '#f3bd72'; ctx.lineWidth = 1.4; ctx.stroke();
+		// Green ring: the nearest route point, the target the steering force pulls toward. Amber dot:
+		// the look-ahead point one forward-aim interval further along the route, which the aim uses to
+		// follow curvature. On a route-tracking beam the ring sits on the particle and no arrow is
+		// drawn — the guide has nothing to correct.
+		circle(d.nx, d.ny, 5.5); ctx.strokeStyle = '#8bff9e'; ctx.lineWidth = 1.5; ctx.stroke();
 		circle(d.tx, d.ty, 3); ctx.fillStyle = '#f3bd72'; ctx.fill();
-		// White arrow: the steering acceleration pulling the live beam right now (never backwards).
+		// White arrow: the steering acceleration the beam feels right now (never backwards).
 		const magnitude = Math.hypot(sim.liveForce.x, sim.liveForce.y);
-		if (magnitude > 0.015) {
+		if (magnitude >= GUIDE_ARROW_MINIMUM) {
 			ctx.strokeStyle = '#ffffff'; ctx.fillStyle = '#ffffff'; ctx.lineWidth = 1.9;
 			arrow(sim.particle.x, sim.particle.y, sim.liveForce.x / magnitude, sim.liveForce.y / magnitude,
-				forceArrowLength(magnitude, 8, 80), 5.5);
+				forceArrowLength(magnitude, 10, 80), 5.5);
 		}
 		ctx.restore();
 	}
@@ -348,10 +358,10 @@
 	function updateGuideReadout() {
 		if (!ui.debugGuidance.checked) { ui.guideReadout.textContent = ''; return; }
 		const d = sim.liveDebug;
-		if (d.nearest < 0) { ui.guideReadout.textContent = 'no forward route — guidance idle'; return; }
-		ui.guideReadout.textContent = 'route ' + d.age.toFixed(1) + ' s old · off-route ' + d.distance.toFixed(1) +
+		if (d.nearest < 0) { ui.guideReadout.textContent = 'no forward-aligned route point — guidance idle'; return; }
+		ui.guideReadout.textContent = 'route ' + d.age.toFixed(1) + ' s old · nearest ' + d.distance.toFixed(2) +
 			' px · heading ' + Math.round(d.angle * 180 / Math.PI) + '° · force ' + d.magnitude.toFixed(2) +
-			' · node ' + d.nearest + '→' + d.target;
+			(d.magnitude < GUIDE_ARROW_MINIMUM ? ' (below arrow scale)' : '');
 	}
 	function frame(now) {
 		const elapsed = last ? Math.min((now - last) / 1000, 0.1) : 0;

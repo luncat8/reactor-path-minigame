@@ -61,7 +61,7 @@ const path = require('node:path');
 		assert.equal(await page.locator('#guide-legend').isVisible(), true);
 		await page.waitForTimeout(300);
 		assert.equal(await page.locator('#guide-readout').isVisible(), true);
-		assert.match(await page.locator('#guide-readout').textContent(), /route \d+\.\d s old|no forward route/);
+		assert.match(await page.locator('#guide-readout').textContent(), /route \d+\.\d s old|no forward-aligned route point/);
 		await page.click('#reset');
 		assert.equal(await page.locator('#clock').textContent(), 'T + 000.0 s');
 		assert.equal(await page.locator('#angle-value').textContent(), '90°');

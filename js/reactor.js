@@ -8,9 +8,22 @@
 	const MAX_GRAZING_SINE = Math.sin(25 * Math.PI / 180);
 	const GUIDE_POSITION_GAIN = 0.5;
 	const GUIDE_PHASE_TIME = 0.75;
-	const GUIDE_FADE_TIME = 1;
 	const MAX_GUIDE_ACCELERATION = 50;
 	const MIN_GUIDE_FORCE = 0.01;
+	// The pull aims this far ahead on the loop so it joins and follows the rail instead
+	// of braking against the section beside the beam.
+	const LOOP_LOOK_AHEAD = 0.1;
+	// A lost detection keeps the committed loop this long, so a marginal recurrence
+	// flickering around the tolerance does not drop the rail out from under the beam.
+	const LOOP_GRACE = 1.2;
+	// Loop detection accepts what the field almost supports; the pull acts only inside the
+	// player's match tolerances. Detection must be looser than the pull, or chaos growing
+	// across the lap keeps tipping the closure over the gate and the rail is dropped.
+	const LOOP_DETECT_DISTANCE = 100;
+	const LOOP_DETECT_ANGLE = 45;
+	// Full authority up to this fraction of a tolerance, then a smooth cutoff at 100%:
+	// inside the tolerance the guide really pulls, beyond it there is exactly no force.
+	const GUIDE_FULL_FACTOR = 0.75;
 	const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 	const smoothstep = value => { const t = clamp(value, 0, 1); return t * t * (3 - 2 * t); };
 
@@ -35,16 +48,13 @@
 		};
 	}
 
-	function makeTarget() {
+	function makeLoop() {
 		return {
-			segment: -1, x: 0, y: 0, vx: 0, vy: 0, time: 0, lead: 0,
-			distance: 0, angle: 0, speedError: 0, timeFactor: 0, score: Infinity
+			x: new Float64Array(SAMPLES), y: new Float64Array(SAMPLES),
+			vx: new Float64Array(SAMPLES), vy: new Float64Array(SAMPLES),
+			count: 0, start: 0, period: 0, step: FORECAST_DT,
+			entryX: 0, entryY: 0, expire: 0
 		};
-	}
-
-	function resetTarget(target) {
-		target.segment = -1;
-		target.score = Infinity;
 	}
 
 	function reflect(p, ax, ay, dt, reflector) {
@@ -74,12 +84,16 @@
 			this.particle = { x: 0, y: 0, vx: 0, vy: 0 };
 			this.guideForce = { x: 0, y: 0 };
 			this.forecastForce = { x: 0, y: 0 };
-			this.guideTarget = makeTarget();
+			this.loop = makeLoop();
+			this.anchor = { segment: -1, position: 0, distance: 0, angle: 0 };
+			this.foot = { x: 0, y: 0, vx: 0, vy: 0 };
+			this.aim = { x: 0, y: 0, vx: 0, vy: 0 };
+			this.pair = { found: false, i: 0, j: 0, score: Infinity };
+			this.alternatePair = { found: false, i: 0, j: 0, score: Infinity };
 			this.liveForce = { x: 0, y: 0 };
 			this.liveDebug = {
-				target: -1, tx: 0, ty: 0, tvx: 0, tvy: 0,
-				distance: 0, angle: 0, speedError: 0, magnitude: 0,
-				lead: 0, timeFactor: 0
+				valid: false, engaged: false, tx: 0, ty: 0, tvx: 0, tvy: 0,
+				distance: 0, angle: 0, speedError: 0, magnitude: 0, period: 0
 			};
 			this.trailX = new Float64Array(900);
 			this.trailY = new Float64Array(900);
@@ -89,10 +103,10 @@
 		reset() {
 			this.time = 0;
 			this.guideStrength = 0.65;
-			this.guideDistance = 100;
-			this.guideDirection = 90;
+			this.guideDistance = 40;
+			this.guideDirection = 30;
 			this.guideVelocity = 0.35;
-			this.guideDelay = 2;
+			this.guidePeriod = 2;
 			this.forecastClock = 0;
 			this.stableTime = 0;
 			this.cooling = 0;
@@ -118,94 +132,195 @@
 				{ x: -85, y: 80, radius: 45 },
 				{ x: 105, y: -55, radius: 42 }
 			];
-			Object.assign(this.particle, { x: -230, y: 0, vx: 0, vy: -151 });
-			this.liveForce.x = 0;
-			this.liveForce.y = 0;
-			this.liveDebug.target = -1;
-			this.path = makePath();
-			this.sparePath = makePath();
-			this.proposalPath = makePath();
-			this.predict();
+		Object.assign(this.particle, { x: -230, y: 0, vx: 0, vy: -151 });
+		this.liveForce.x = 0;
+		this.liveForce.y = 0;
+		this.liveDebug.valid = false;
+		this.liveDebug.engaged = false;
+		this.loop.count = 0;
+		this.path = makePath();
+		this.proposalPath = makePath();
+		this.predict();
 		}
 
-		// Select the nearest compatible state, not merely the nearest crossing. Recent future is
-		// excluded so the guide seeks a return pass capable of closing the orbit.
-		findGuideTarget(p, route, queryTime, out) {
-			resetTarget(out);
-			if (route.count < 2 || this.guideDelay < 0) return false;
+		// A loop candidate is a near-recurrence anchored at the beam: the earlier state lies
+		// within the detection radius of the beam's current position, and a later forecast
+		// state returns to it inside the detection tolerances — the beam's own next lap,
+		// closed by the field. The rail therefore rolls with the beam and evolves smoothly
+		// with the field. `alternate` tracks the best candidate anchored elsewhere, so a
+		// passing loop can still capture the beam once the held rail expires.
+		findLoopPair(route) {
+			const pair = this.pair;
+			const alternate = this.alternatePair;
+			pair.found = false;
+			pair.score = Infinity;
+			alternate.found = false;
+			alternate.score = Infinity;
+			if (route.count < 2 || this.guideDistance <= 0 || this.guideDirection <= 0) return pair;
+			const reach = LOOP_DETECT_DISTANCE;
+			const reach2 = reach * reach;
+			const angleLimit = Math.min(Math.PI / 2, LOOP_DETECT_ANGLE * Math.PI / 180);
+			const minimumCosine = Math.cos(angleLimit);
+			const anchorX = this.particle.x, anchorY = this.particle.y;
+			let first = 1;
+			for (let i = 0; i < route.count; i++) {
+				if (first <= i) first = i + 1;
+				while (first < route.count && route.t[first] - route.t[i] < this.guidePeriod) first++;
+				if (first >= route.count) break;
+				const x = route.x[i], y = route.y[i];
+				const vx = route.vx[i], vy = route.vy[i];
+				const speed = Math.hypot(vx, vy);
+				if (speed < 1e-8) continue;
+				const beamX = x - anchorX, beamY = y - anchorY;
+				const atBeam = beamX * beamX + beamY * beamY < reach2;
+				for (let j = first; j < route.count; j++) {
+					const dx = route.x[j] - x;
+					if (dx >= reach || dx <= -reach) continue;
+					const dy = route.y[j] - y;
+					if (dy >= reach || dy <= -reach) continue;
+					const distance2 = dx * dx + dy * dy;
+					if (distance2 >= reach2) continue;
+					const tvx = route.vx[j], tvy = route.vy[j];
+					const targetSpeed = Math.hypot(tvx, tvy);
+					if (targetSpeed < 1e-8) continue;
+					if ((vx * tvx + vy * tvy) / (speed * targetSpeed) < minimumCosine) continue;
+					const speedX = tvx - vx, speedY = tvy - vy;
+					const score = distance2 + (speedX * speedX + speedY * speedY) * GUIDE_PHASE_TIME * GUIDE_PHASE_TIME;
+					if (atBeam) {
+						if (score >= pair.score) continue;
+						pair.found = true;
+						pair.score = score;
+						pair.i = i;
+						pair.j = j;
+					} else {
+						if (score >= alternate.score) continue;
+						alternate.found = true;
+						alternate.score = score;
+						alternate.i = i;
+						alternate.j = j;
+					}
+				}
+			}
+			return pair;
+		}
+
+		commitLoop(route, pair) {
+			const loop = this.loop;
+			const count = pair.j - pair.i + 1;
+			for (let k = 0; k < count; k++) {
+				loop.x[k] = route.x[pair.i + k];
+				loop.y[k] = route.y[pair.i + k];
+				loop.vx[k] = route.vx[pair.i + k];
+				loop.vy[k] = route.vy[pair.i + k];
+			}
+			loop.count = count;
+			loop.start = route.t[pair.i];
+			loop.period = route.t[pair.j] - route.t[pair.i];
+			loop.step = loop.period / (count - 1);
+			loop.entryX = route.x[pair.i];
+			loop.entryY = route.y[pair.i];
+			loop.expire = this.time + LOOP_GRACE;
+		}
+
+		// The committed lap is a closed rail: interval k connects sample k to sample (k + 1),
+		// and the last interval wraps around to sample 0, closing the loop.
+		loopStateAt(position, out) {
+			const loop = this.loop;
+			const intervals = loop.count - 1;
+			let f = position % intervals;
+			if (f < 0) f += intervals;
+			const k = f | 0;
+			const u = f - k;
+			const a = k;
+			const b = k === intervals - 1 ? 0 : k + 1;
+			out.x = loop.x[a] + (loop.x[b] - loop.x[a]) * u;
+			out.y = loop.y[a] + (loop.y[b] - loop.y[a]) * u;
+			out.vx = loop.vx[a] + (loop.vx[b] - loop.vx[a]) * u;
+			out.vy = loop.vy[a] + (loop.vy[b] - loop.vy[a]) * u;
+			return out;
+		}
+
+		// Nearest compatible section of the loop: the beam is only ever pulled toward a
+		// section it is already close to and already moving along, so a crossing branch
+		// with the wrong direction can never capture it. Sections at the heading limit
+		// must be clearly nearer than a well-aligned one to win.
+		findLoopAnchor(p, out) {
+			const loop = this.loop;
+			const intervals = loop.count - 1;
+			out.segment = -1;
+			if (intervals < 1) return false;
 			const speed = Math.hypot(p.vx, p.vy);
 			if (speed < 1e-8) return false;
-			const earliest = queryTime + this.guideDelay;
 			const angleLimit = Math.min(Math.PI / 2, this.guideDirection * Math.PI / 180);
 			const minimumCosine = Math.cos(angleLimit);
-			for (let i = 0; i < route.count - 1; i++) {
-				const t0 = route.t[i], t1 = route.t[i + 1];
-				if (t1 <= earliest || t1 <= t0) continue;
-				const dx = route.x[i + 1] - route.x[i], dy = route.y[i + 1] - route.y[i];
+			let best = Infinity;
+			for (let k = 0; k < intervals; k++) {
+				const a = k;
+				const b = k === intervals - 1 ? 0 : k + 1;
+				const dx = loop.x[b] - loop.x[a], dy = loop.y[b] - loop.y[a];
 				const length2 = dx * dx + dy * dy;
 				if (length2 < 1e-12) continue;
-				const minimumU = clamp((earliest - t0) / (t1 - t0), 0, 1);
-				const u = clamp(((p.x - route.x[i]) * dx + (p.y - route.y[i]) * dy) / length2, minimumU, 1);
-				const x = route.x[i] + dx * u, y = route.y[i] + dy * u;
-				const vx = route.vx[i] + (route.vx[i + 1] - route.vx[i]) * u;
-				const vy = route.vy[i] + (route.vy[i + 1] - route.vy[i]) * u;
-				const targetSpeed = Math.hypot(vx, vy);
-				if (targetSpeed < 1e-8) continue;
-				const cosine = clamp((p.vx * vx + p.vy * vy) / (speed * targetSpeed), -1, 1);
-				if (cosine <= minimumCosine || cosine <= 0) continue;
-				const angle = Math.acos(cosine);
-				const positionX = x - p.x, positionY = y - p.y;
-				const velocityX = vx - p.vx, velocityY = vy - p.vy;
-				const distance2 = positionX * positionX + positionY * positionY;
-				if (distance2 >= this.guideDistance * this.guideDistance) continue;
-				const speedError2 = velocityX * velocityX + velocityY * velocityY;
-				const time = t0 + (t1 - t0) * u;
-				const lead = time - queryTime;
-				const timeFactor = smoothstep((lead - this.guideDelay) / GUIDE_FADE_TIME);
-				if (timeFactor <= 0) continue;
-				const temporalWeight = 0.05 + 0.95 * timeFactor;
-				const score = (distance2 + speedError2 * GUIDE_PHASE_TIME * GUIDE_PHASE_TIME) /
-					(temporalWeight * temporalWeight);
-				if (score >= out.score) continue;
-				out.segment = i;
-				out.x = x; out.y = y; out.vx = vx; out.vy = vy;
-				out.time = time; out.lead = lead;
+				const u = clamp(((p.x - loop.x[a]) * dx + (p.y - loop.y[a]) * dy) / length2, 0, 1);
+				const rx = loop.x[a] + dx * u - p.x;
+				const ry = loop.y[a] + dy * u - p.y;
+				const distance2 = rx * rx + ry * ry;
+				if (distance2 >= best) continue;
+				const vx = loop.vx[a] + (loop.vx[b] - loop.vx[a]) * u;
+				const vy = loop.vy[a] + (loop.vy[b] - loop.vy[a]) * u;
+				const loopSpeed = Math.hypot(vx, vy);
+				if (loopSpeed < 1e-8) continue;
+				const cosine = (p.vx * vx + p.vy * vy) / (speed * loopSpeed);
+				if (cosine <= 0 || cosine < minimumCosine) continue;
+				const angle = Math.acos(clamp(cosine, -1, 1));
+				const score = distance2 * (1 + 3 * (angle / angleLimit) * (angle / angleLimit));
+				if (score >= best) continue;
+				best = score;
+				out.segment = k;
+				out.position = k + u;
 				out.distance = Math.sqrt(distance2);
 				out.angle = angle;
-				out.speedError = Math.sqrt(speedError2);
-				out.timeFactor = timeFactor;
-				out.score = score;
 			}
 			return out.segment >= 0;
 		}
 
-		// A damped phase-state controller closes both errors: position pulls toward the green target,
-		// while velocity matching turns and accelerates the beam into the target's movement state.
-		guidanceVector(p, route, queryTime, guidance, debug) {
+		// The committed loop works as a magnetic guide rail: a bounded lateral force returns
+		// the beam to the nearest compatible section of the loop while velocity matching
+		// adopts the local speed and heading, so laps repeat and the orbit closes. The pull
+		// is zero outside the match tolerances — the guide only completes loops the field
+		// almost supports, it never drags the beam onto an impossible orbit.
+		guidanceVector(p, guidance, debug) {
 			const force = this.guideForce;
-			force.x = 0; force.y = 0;
-			if (debug) { debug.target = -1; debug.magnitude = 0; }
-			if (route.count < 2 || guidance <= 0 || this.guideDistance <= 0 || this.guideDirection <= 0) return force;
-			const target = this.guideTarget;
-			if (!this.findGuideTarget(p, route, queryTime, target)) return force;
-			const distanceFactor = 1 - smoothstep(target.distance / this.guideDistance);
+			force.x = 0;
+			force.y = 0;
+			if (debug) { debug.valid = false; debug.engaged = false; debug.magnitude = 0; }
+			const loop = this.loop;
+			if (loop.count < 2) return force;
+			if (debug) debug.valid = true;
+			if (debug) debug.period = loop.period;
+			if (guidance <= 0 || this.guideDistance <= 0 || this.guideDirection <= 0) return force;
+			const anchor = this.findLoopAnchor(p, this.anchor);
+			if (debug && anchor) { debug.distance = this.anchor.distance; debug.angle = this.anchor.angle; }
+			if (!anchor) return force;
+			if (debug) debug.engaged = this.anchor.distance < this.guideDistance;
+			if (this.anchor.distance >= this.guideDistance) return force;
+			const foot = this.loopStateAt(this.anchor.position, this.foot);
+			const aim = this.loopStateAt(this.anchor.position + LOOP_LOOK_AHEAD / loop.step, this.aim);
+			if (debug) {
+				debug.tx = aim.x; debug.ty = aim.y;
+				debug.tvx = aim.vx; debug.tvy = aim.vy;
+				debug.speedError = Math.hypot(aim.vx - p.vx, aim.vy - p.vy);
+			}
 			const angleLimit = Math.min(Math.PI / 2, this.guideDirection * Math.PI / 180);
-			const directionFactor = 1 - smoothstep(target.angle / angleLimit);
-			let fx = (target.x - p.x) * GUIDE_POSITION_GAIN + (target.vx - p.vx) * this.guideVelocity;
-			let fy = (target.y - p.y) * GUIDE_POSITION_GAIN + (target.vy - p.vy) * this.guideVelocity;
-			const scale = guidance * distanceFactor * directionFactor * target.timeFactor;
-			fx *= scale; fy *= scale;
+			const distanceFactor = 1 - smoothstep((this.anchor.distance / this.guideDistance - GUIDE_FULL_FACTOR) / (1 - GUIDE_FULL_FACTOR));
+			const directionFactor = 1 - smoothstep((this.anchor.angle / angleLimit - GUIDE_FULL_FACTOR) / (1 - GUIDE_FULL_FACTOR));
+			let fx = (foot.x - p.x) * GUIDE_POSITION_GAIN + (aim.vx - p.vx) * this.guideVelocity;
+			let fy = (foot.y - p.y) * GUIDE_POSITION_GAIN + (aim.vy - p.vy) * this.guideVelocity;
+			const scale = guidance * distanceFactor * directionFactor;
+			fx *= scale;
+			fy *= scale;
 			const length = Math.hypot(fx, fy);
 			const magnitude = Math.min(MAX_GUIDE_ACCELERATION, length);
-			if (debug) {
-				debug.target = target.segment;
-				debug.tx = target.x; debug.ty = target.y;
-				debug.tvx = target.vx; debug.tvy = target.vy;
-				debug.distance = target.distance; debug.angle = target.angle;
-				debug.speedError = target.speedError; debug.lead = target.lead;
-				debug.timeFactor = target.timeFactor;
-				debug.magnitude = magnitude >= MIN_GUIDE_FORCE ? magnitude : 0;
-			}
+			if (debug) debug.magnitude = magnitude >= MIN_GUIDE_FORCE ? magnitude : 0;
 			if (magnitude < MIN_GUIDE_FORCE) return force;
 			const limit = magnitude / length;
 			force.x = fx * limit;
@@ -213,7 +328,7 @@
 			return force;
 		}
 
-		integrate(p, dt, route, guidance, forceOut, debug, queryTime) {
+		integrate(p, dt, guidance, forceOut, debug) {
 			const ax = p.x, ay = p.y;
 			let fx = -0.39 * p.x, fy = -0.64 * p.y;
 			for (let i = 0; i < this.magnets.length; i++) {
@@ -228,8 +343,8 @@
 				fy += force * (uy * alignment + my * 0.25);
 			}
 			if (forceOut) { forceOut.x = 0; forceOut.y = 0; }
-			if (route.count > 1 && guidance > 0) {
-				const force = this.guidanceVector(p, route, queryTime === undefined ? this.time : queryTime, guidance, debug);
+			if (guidance > 0) {
+				const force = this.guidanceVector(p, guidance, debug);
 				fx += force.x; fy += force.y;
 				if (forceOut) { forceOut.x = force.x; forceOut.y = force.y; }
 			}
@@ -246,7 +361,7 @@
 			}
 		}
 
-		forecastInto(next, route) {
+		forecastInto(next, guidance) {
 			const p = this.scratch;
 			Object.assign(p, this.particle);
 			for (let i = 0; i < SAMPLES; i++) {
@@ -256,8 +371,7 @@
 				if (i === SAMPLES - 1) { next.forceX[i] = 0; next.forceY[i] = 0; break; }
 				for (let sub = 0; sub < 3; sub++) {
 					const forceOut = sub === 0 ? this.forecastForce : null;
-					this.integrate(p, DT, route, this.guideStrength, forceOut, null,
-						this.time + i * FORECAST_DT + sub * DT);
+					this.integrate(p, DT, guidance, forceOut, null);
 					if (!forceOut) continue;
 					next.forceX[i] = forceOut.x;
 					next.forceY[i] = forceOut.y;
@@ -267,14 +381,23 @@
 		}
 
 		predict() {
-			// Two reusable passes resolve the forecast/guide feedback without guiding against a stale
-			// committed route. The first pass proposes the path; the second follows that proposal.
-			this.forecastInto(this.proposalPath, this.path);
-			this.forecastInto(this.sparePath, this.proposalPath);
-			const previous = this.path;
-			this.path = this.sparePath;
-			this.sparePath = previous;
-			const live = this.guidanceVector(this.particle, this.path, this.time, this.guideStrength, this.liveDebug);
+			// Two reusable passes with different jobs. The first pass is unguided: it shows what
+			// the field alone would do, and its best near-recurrence is the loop the field almost
+			// supports — detection never depends on the guide's own limited authority. The second
+			// pass follows the committed loop, so the displayed forecast matches the forces the
+			// beam will actually feel.
+			this.forecastInto(this.proposalPath, 0);
+			const pair = this.findLoopPair(this.proposalPath);
+			if (pair.found) {
+				this.commitLoop(this.proposalPath, pair);
+			} else if (this.time > this.loop.expire) {
+				// The rail could not be re-anchored: after the grace period the best
+				// unrelated candidate takes over, or the guide goes idle.
+				if (this.alternatePair.found) this.commitLoop(this.proposalPath, this.alternatePair);
+				else this.loop.count = 0;
+			}
+			this.forecastInto(this.path, this.guideStrength);
+			const live = this.guidanceVector(this.particle, this.guideStrength, this.liveDebug);
 			this.liveForce.x = live.x; this.liveForce.y = live.y;
 			const horizon = this.path.t[SAMPLES - 1] - this.path.t[0];
 			for (let i = 0; i < this.targets.length; i++) this.targets[i].predicted = this.pathDwell(this.targets[i]) / horizon;
@@ -294,9 +417,9 @@
 
 		step() {
 			const p = this.particle, ax = p.x, ay = p.y;
-			this.integrate(p, DT, this.path, this.guideStrength, this.liveForce, this.liveDebug, this.time);
+			this.integrate(p, DT, this.guideStrength, this.liveForce, this.liveDebug);
 			this.time += DT;
-			const force = this.guidanceVector(p, this.path, this.time, this.guideStrength, this.liveDebug);
+			const force = this.guidanceVector(p, this.guideStrength, this.liveDebug);
 			this.liveForce.x = force.x; this.liveForce.y = force.y;
 			const smoothing = 1 - Math.exp(-DT / 10);
 			let balanced = this.time > 14;

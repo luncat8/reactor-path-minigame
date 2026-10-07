@@ -95,7 +95,7 @@ function makeRoute(points) {
 	return route;
 }
 const line = (spacing, count) => makeRoute(Array.from({ length: count }, (_, i) => [i * spacing, 0]));
-const newGuide = () => ({ segment: -1, x: 0, y: 0, s: 0, speed: 0, distance: 0, wide: true });
+const newGuide = () => ({ segment: -1, x: 0, y: 0, s: 0, speed: 0, distance: 0 });
 
 test('the guide point is the true projection onto the reference, not the nearest sample', () => {
 	const sim = new Reactor();
@@ -104,7 +104,7 @@ test('the guide point is the true projection onto the reference, not the nearest
 	const route = line(3.625, 41);           // 1 s of travel at 145 px/s
 	const state = newGuide();
 	const debug = {};
-	sim.guidanceVector({ x: 20, y: 8, vx: 145, vy: 0 }, route, 1, debug, state, 0);
+	sim.guidanceVector({ x: 20, y: 8, vx: 145, vy: 0 }, route, 1, debug, state);
 	near(state.x, 20, 1e-9);                 // between samples 5 and 6, not on either node
 	near(state.y, 0, 1e-9);
 	near(state.distance, 8, 1e-9);
@@ -126,7 +126,7 @@ test('guidance steers laterally and can never thrust or brake the beam', () => {
 			const angle = degrees * Math.PI / 180;
 			const particle = { x: 30, y: offset, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed };
 			const state = newGuide();
-			const force = sim.guidanceVector(particle, route, 1, null, state, 4);
+			const force = sim.guidanceVector(particle, route, 1, null, state);
 			const along = force.x * particle.vx + force.y * particle.vy;
 			const scale = Math.hypot(force.x, force.y) * speed || 1;
 			assert.ok(along >= -1e-9 * scale, `force pulled backwards: ${along / scale}`);
@@ -141,9 +141,9 @@ test('an offset beam is pulled back to the route, an on-route beam needs no forc
 	sim.magnets.forEach(magnet => { magnet.strength = 0; });
 	sim.reflectors.length = 0;
 	const route = line(3.625, 121);
-	const tracking = sim.guidanceVector({ x: 30, y: 0, vx: 145, vy: 0 }, route, 1, null, newGuide(), 4);
+	const tracking = sim.guidanceVector({ x: 30, y: 0, vx: 145, vy: 0 }, route, 1, null, newGuide());
 	near(tracking.x, 0, 1e-9); near(tracking.y, 0, 1e-9);
-	const offset = sim.guidanceVector({ x: 30, y: 10, vx: 145, vy: 0 }, route, 1, null, newGuide(), 4);
+	const offset = sim.guidanceVector({ x: 30, y: 10, vx: 145, vy: 0 }, route, 1, null, newGuide());
 	near(offset.x, 0, 1e-9);
 	assert.ok(offset.y < 0, 'an offset beam is pulled back toward the route');
 	// gain × lateral correction, faded by how far the beam sits inside the reach (10 px in 40 px reach -> u=0.25)
@@ -157,20 +157,42 @@ test('opposing and perpendicular passes of a self-crossing route cannot capture 
 	const route = makeRoute([[0, 3], [10, 3], [20, 3], [20, 0], [10, 0], [0, 0], [-10, 0]]);
 	const state = newGuide();
 	const outbound = { x: 0, y: 1, vx: 100, vy: 0 };
-	sim.guidanceVector(outbound, route, 1, null, state, 0);
+	sim.guidanceVector(outbound, route, 1, null, state);
 	near(state.y, 3, 1e-9);
 	assert.equal(state.segment, 0);
 	const returning = { x: 0, y: 1, vx: -100, vy: 0 };
 	const reverseState = newGuide();
-	sim.guidanceVector(returning, route, 1, null, reverseState, 5);
+	sim.guidanceVector(returning, route, 1, null, reverseState);
 	assert.ok(reverseState.y <= 1e-9, 'a −x beam locks onto the returning pass');
 
 	// A beam flying straight at a +x route (perpendicular) receives nothing at all.
 	const perpendicular = { x: 30, y: -10, vx: 0, vy: 145 };
 	const perpendicularState = newGuide();
-	const force = sim.guidanceVector(perpendicular, line(3.625, 121), 1, null, perpendicularState, 4);
+	const force = sim.guidanceVector(perpendicular, line(3.625, 121), 1, null, perpendicularState);
 	assert.equal(perpendicularState.segment, -1);
 	near(Math.hypot(force.x, force.y), 0);
+});
+
+test('movement matching locks onto whichever lap of the route is spatially nearest, however far apart in time or arc', () => {
+	const sim = new Reactor();
+	// Lap A passes through (50, 0) early and briefly; a long, distant detour follows; lap B passes
+	// close to (50, 1) much later, after travelling far more arc length. Nothing is passed to the
+	// search beyond the route and the beam itself — there is no time or index hint to find either
+	// lap, so a correct match proves the search considers the whole route, not a local window.
+	const route = makeRoute([
+		[0, 0], [40, 0], [50, 0], [60, 0],                     // lap A, t = 0..0.075 s
+		[60, 400], [700, 400], [700, -400], [60, -400], [60, 0.9],   // far detour, t = 0.1..0.2 s
+		[40, 0.9], [50, 1], [60, 0.9], [60, 0],                // lap B, t = 0.225..0.3 s
+	]);
+	const stateA = newGuide();
+	sim.guidanceVector({ x: 50, y: -4, vx: 100, vy: 0 }, route, 1, null, stateA);
+	near(stateA.y, 0, 1e-6);
+	assert.ok(stateA.segment <= 2, `expected lap A (near the start), got segment ${stateA.segment}`);
+
+	const stateB = newGuide();
+	sim.guidanceVector({ x: 50, y: 5, vx: 100, vy: 0 }, route, 1, null, stateB);
+	near(stateB.y, 1, 1e-6);
+	assert.ok(stateB.segment >= 9, `expected lap B (near the end, a different lap entirely), got segment ${stateB.segment}`);
 });
 
 test('distance and heading falloffs gate guidance smoothly', () => {
@@ -181,7 +203,7 @@ test('distance and heading falloffs gate guidance smoothly', () => {
 	const magnitude = (offset, degrees) => {
 		const angle = degrees * Math.PI / 180;
 		const state = newGuide();
-		const force = sim.guidanceVector({ x: 30, y: offset, vx: Math.cos(angle) * 145, vy: Math.sin(angle) * 145 }, route, 1, null, state, 8);
+		const force = sim.guidanceVector({ x: 30, y: offset, vx: Math.cos(angle) * 145, vy: Math.sin(angle) * 145 }, route, 1, null, state);
 		return Math.hypot(force.x, force.y);
 	};
 	const near10 = magnitude(10, 0);
@@ -226,7 +248,7 @@ test('a held route resists deviation, while memory off adopts it at the next ref
 		const speed = Math.hypot(sim.particle.vx, sim.particle.vy);
 		sim.particle.x += -sim.particle.vy / speed * 15;
 		sim.particle.y += sim.particle.vx / speed * 15;
-		sim.liveGuide.segment = -1; sim.liveGuide.wide = true;
+		sim.liveGuide.segment = -1;
 		const seen = [];
 		for (let i = 0; i < 120 * 1.6; i++) {
 			sim.step();

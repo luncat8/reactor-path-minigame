@@ -9,7 +9,7 @@ function straightRoute(count, spacing) {
 	for (let i = 0; i < count; i++) { route.x[i] = i * spacing; route.t[i] = i / 40; route.s[i] = i * spacing; }
 	return route;
 }
-const newGuide = () => ({ segment: -1, x: 0, y: 0, s: 0, speed: 0, distance: 0, wide: true });
+const newGuide = () => ({ segment: -1, x: 0, y: 0, s: 0, speed: 0, distance: 0 });
 
 // Telemetry of the live guide over a run, including a paired view around a field edit.
 function telemetry(seconds, strength, planLag, editAt) {
@@ -62,7 +62,7 @@ function deviationHold(planLag) {
 	const speed = Math.hypot(sim.particle.vx, sim.particle.vy);
 	sim.particle.x += -sim.particle.vy / speed * 15;
 	sim.particle.y += sim.particle.vx / speed * 15;
-	sim.liveGuide.segment = -1; sim.liveGuide.wide = true;
+	sim.liveGuide.segment = -1;
 	const trace = [];
 	for (let i = 0; i < 120 * 1.5; i++) {
 		sim.step();
@@ -77,7 +77,7 @@ function geometry() {
 	const route = straightRoute(121, 3.625);       // 145 px/s at the forecast interval
 	const state = newGuide();
 	const debug = {};
-	sim.guidanceVector({ x: 20, y: 8, vx: 145, vy: 0 }, route, 1, debug, state, 0);
+	sim.guidanceVector({ x: 20, y: 8, vx: 145, vy: 0 }, route, 1, debug, state);
 	return { projection: [state.x, state.y], distance: state.distance, aim: [debug.tx, debug.ty], angle: debug.angle };
 }
 

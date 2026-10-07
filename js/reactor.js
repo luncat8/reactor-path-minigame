@@ -14,13 +14,16 @@
 	// sitting exactly on its own extrapolation. Holding a plan for a while restores real error terms
 	// whenever the beam or the field changes, and it keeps the route evolving smoothly.
 	const PLAN_LAG_DEFAULT = 1.8;
-	// The projection search walks this arc length around its seed per step. Wide is used once per
-	// plan change to re-seat onto the new reference, then trimmed to the beam's plausible advance.
-	const GUIDE_BACKTRACK = 8;
-	const GUIDE_BACKTRACK_TIME = 0.1;
-	const GUIDE_ADVANCE = 24;
-	const GUIDE_ADVANCE_TIME = 0.25;
-	const WIDE_MINIMUM = 60;
+	// Movement matching: the anchor search scans every forward-aligned segment of the committed
+	// route, not just a window around the beam's own scheduled instant. A quasi-periodic field
+	// makes the 14 s forecast re-enter regions it already visited; scanning the whole route lets a
+	// later lap lock onto an earlier one instead of only ever chasing its own ballistic clock.
+	// Once anchored, segments within STICKY_RANGE of the previous anchor are preferred by
+	// STICKY_BIAS so the projection does not flicker between two similarly close laps frame to
+	// frame; a clearly better match (a different lap coming closer) still wins and pulls the beam
+	// into it, which is what lets the trajectory close into a stable loop.
+	const STICKY_RANGE = 3;
+	const STICKY_BIAS = 0.6;
 	const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 	const smoothstep = value => { const t = clamp(value, 0, 1); return t * t * (3 - 2 * t); };
 
@@ -47,10 +50,10 @@
 	// Anchor of a beam on a reference plan: the fractional position of its projection plus the
 	// interpolated point, the local route speed and the cross-track distance.
 	function makeGuide() {
-		return { segment: -1, x: 0, y: 0, s: 0, speed: 0, distance: 0, wide: true };
+		return { segment: -1, x: 0, y: 0, s: 0, speed: 0, distance: 0 };
 	}
 
-	function resetGuide(guide) { guide.segment = -1; guide.x = 0; guide.y = 0; guide.s = 0; guide.speed = 0; guide.distance = 0; guide.wide = true; }
+	function resetGuide(guide) { guide.segment = -1; guide.x = 0; guide.y = 0; guide.s = 0; guide.speed = 0; guide.distance = 0; }
 
 	function pathLength(path) {
 		path.s[0] = 0;
@@ -141,38 +144,23 @@
 			this.predict();
 		}
 
-		// Node of the reference plan scheduled for `offset` seconds from now. The plan carries
-		// absolute timestamps, so the corresponding point is known by the clock and a self-crossing
-		// pass or a nearby older loop can never capture the beam.
-		seedIndex(route, offset) {
-			if (route.count < 2) return 0;
-			return clamp(Math.round((this.time + offset - route.t[0]) / FORECAST_DT), 0, route.count - 2);
-		}
-
-		// Project the beam onto the reference plan and keep the projection moving forward along it.
-		// The window is seeded on the scheduled node and prefers the nearest segment that continues
-		// the beam's current heading, so an opposing or perpendicular pass cannot pull it backwards.
-		// Guidance stays off when no forward route exists nearby rather than guessing a correction.
-		findGuidePoint(p, route, state, seed) {
-			const anchored = state.segment >= 0;
+		// Project the beam onto the reference plan by movement matching: scan every forward-aligned
+		// segment of the whole route for the one the beam is nearest to, rather than a window around
+		// where the beam's own ballistic clock expects it to be. A quasi-periodic field makes the
+		// route re-enter the same region on a later lap; letting the search see the entire route is
+		// what allows a later lap to lock onto an earlier one and converge into a stable closed loop,
+		// instead of only ever chasing a single open-ended, ever-drifting extrapolation.
+		// Heading alignment keeps an opposing or perpendicular pass from capturing the beam. A small
+		// bias toward the previous anchor avoids flicker when two laps pass almost equally close.
+		findGuidePoint(p, route, state) {
+			const previous = state.segment;
 			state.segment = -1;
 			if (route.count < 2) return false;
 			const speed = Math.hypot(p.vx, p.vy);
 			if (speed < 1e-8) return false;
 			const ux = p.vx / speed, uy = p.vy / speed;
-			const wide = state.wide;
-			const center = wide || !anchored ? seed : state.segment;
-			const centerS = wide || !anchored ? route.s[seed] : state.s;
-			const reach = wide ? Math.max(WIDE_MINIMUM, this.guideDistance) : 0;
-			const back = reach || Math.max(GUIDE_BACKTRACK, speed * GUIDE_BACKTRACK_TIME);
-			const ahead = reach || Math.max(GUIDE_ADVANCE, speed * GUIDE_ADVANCE_TIME);
-			const backLimit = centerS - back;
-			const forwardLimit = centerS + ahead;
-			let first = center;
-			while (first > 0 && route.s[first] > backLimit) first--;
-			let best = -1, bestU = 0, bestDistance2 = Infinity;
-			for (let i = first; i < route.count - 1; i++) {
-				if (i > first && route.s[i] > forwardLimit) break;
+			let best = -1, bestU = 0, bestScore = Infinity, bestDistance2 = Infinity;
+			for (let i = 0; i < route.count - 1; i++) {
 				const ax = route.x[i], ay = route.y[i];
 				const dx = route.x[i + 1] - ax, dy = route.y[i + 1] - ay;
 				const length2 = dx * dx + dy * dy;
@@ -181,8 +169,9 @@
 				const u = clamp(((p.x - ax) * dx + (p.y - ay) * dy) / length2, 0, 1);
 				const cx = ax + dx * u, cy = ay + dy * u;
 				const distance2 = (cx - p.x) * (cx - p.x) + (cy - p.y) * (cy - p.y);
-				if (distance2 >= bestDistance2) continue;
-				best = i; bestU = u; bestDistance2 = distance2;
+				const score = previous >= 0 && Math.abs(i - previous) <= STICKY_RANGE ? distance2 * STICKY_BIAS : distance2;
+				if (score >= bestScore) continue;
+				best = i; bestU = u; bestScore = score; bestDistance2 = distance2;
 			}
 			if (best < 0) return false;
 			const span = route.s[best + 1] - route.s[best];
@@ -193,7 +182,6 @@
 			state.s = route.s[best] + span * bestU;
 			state.speed = step > 1e-9 ? span / step : 0;
 			state.distance = Math.sqrt(bestDistance2);
-			state.wide = false;
 			return true;
 		}
 
@@ -210,7 +198,7 @@
 			return out;
 		}
 
-		guidanceVector(p, route, guidance, debug, state, seed) {
+		guidanceVector(p, route, guidance, debug, state) {
 			const force = this.guideForce;
 			force.x = 0; force.y = 0;
 			// Keep the overlay honest: nothing is reported unless this step really guided.
@@ -218,7 +206,7 @@
 			if (route.count < 2 || guidance <= 0 || this.guideDistance <= 0 || this.guideDirection <= 0) return force;
 			const speed = Math.hypot(p.vx, p.vy);
 			if (speed < 1e-8) return force;
-			if (!this.findGuidePoint(p, route, state, seed)) return force;
+			if (!this.findGuidePoint(p, route, state)) return force;
 			const ux = p.vx / speed, uy = p.vy / speed;
 
 			const lookaheadDistance = Math.max(2, this.guideLookahead * 0.001 * state.speed);
@@ -255,7 +243,7 @@
 			return force;
 		}
 
-		integrate(p, dt, route, guidance, forceOut, debug, state, seed) {
+		integrate(p, dt, route, guidance, forceOut, debug, state) {
 			const ax = p.x, ay = p.y;
 			let fx = -0.39 * p.x, fy = -0.64 * p.y;
 			for (let i = 0; i < this.magnets.length; i++) {
@@ -271,7 +259,7 @@
 			}
 			if (forceOut) { forceOut.x = 0; forceOut.y = 0; }
 			if (route.count > 1 && guidance > 0) {
-				const force = this.guidanceVector(p, route, guidance, debug, state, seed);
+				const force = this.guidanceVector(p, route, guidance, debug, state);
 				fx += force.x; fy += force.y;
 				if (forceOut) { forceOut.x = force.x; forceOut.y = force.y; }
 			}
@@ -294,14 +282,12 @@
 			Object.assign(p, this.particle);
 			const guide = this.forecastGuide;
 			resetGuide(guide);
-			const base = this.seedIndex(route, 0);
 			for (let i = 0; i < SAMPLES; i++) {
 				next.x[i] = p.x; next.y[i] = p.y; next.t[i] = this.time + i * FORECAST_DT;
 				if (i === SAMPLES - 1) { next.forceX[i] = 0; next.forceY[i] = 0; break; }
-				const seed = Math.min(base + i, route.count - 2);
 				for (let sub = 0; sub < 3; sub++) {
 					const forceOut = sub === 0 ? this.guideForce : null;
-					this.integrate(p, DT, route, this.guideStrength, forceOut, null, guide, seed);
+					this.integrate(p, DT, route, this.guideStrength, forceOut, null, guide);
 					if (!forceOut) continue;
 					next.forceX[i] = forceOut.x; next.forceY[i] = forceOut.y;
 				}
@@ -321,9 +307,8 @@
 				this.reference.t.set(next.t); this.reference.s.set(next.s);
 				this.reference.count = SAMPLES;
 				this.referenceTime = this.time;
-				// Re-seat the live anchor onto the new reference with a wide search window.
+				// Re-seat the live anchor onto the new reference; the next search scans it fresh.
 				this.liveGuide.segment = -1;
-				this.liveGuide.wide = true;
 			}
 			this.referenceAge = this.reference.count > 1 ? this.time - this.referenceTime : 0;
 			const horizon = next.t[SAMPLES - 1] - next.t[0];
@@ -341,7 +326,7 @@
 
 		step() {
 			const p = this.particle, ax = p.x, ay = p.y;
-			this.integrate(p, DT, this.reference, this.guideStrength, this.liveForce, this.liveDebug, this.liveGuide, this.seedIndex(this.reference, 0));
+			this.integrate(p, DT, this.reference, this.guideStrength, this.liveForce, this.liveDebug, this.liveGuide);
 			this.liveDebug.age = this.referenceAge;
 			this.time += DT;
 			const smoothing = 1 - Math.exp(-DT / 10);

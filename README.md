@@ -22,25 +22,26 @@ python3 -m http.server 8000 --bind 0.0.0.0
 
 ## Trajectory guidance
 
-Guidance now seeks a **future return state** that can close the orbit instead of projecting onto the immediate path beside the particle:
+Guidance works as a **loop-lock magnetic rail**: it finds the loop the field almost supports, commits it, and then completes it.
 
-1. Every forecast sample stores position, time, and movement vector.
-2. The next 2 seconds are excluded by default. Influence fades in over the following second, preventing the current outgoing branch from selecting itself. **Ignore near future** changes that 2-second exclusion.
-3. All remaining forecast segments within the selected reach are searched. The selected point is interpolated on a segment and minimizes a phase-space score containing position and velocity error. Opposing and perpendicular movement is ineligible, so a closer wrong-way branch at a crossing cannot capture the particle.
-4. A bounded damped controller combines position pull with movement matching. It gently turns, accelerates, or brakes the particle toward both the target position and its target velocity. **Movement matching** adjusts the velocity term; distance and direction controls fade implausible matches.
-5. Forecast feedback is resolved with two reusable prediction passes every 0.6 seconds. No particle teleportation or direct velocity snapping occurs.
+1. Every 0.6 s the sim runs one *unguided* forecast pass. Its best near-recurrence — an earlier state that a later state returns to, anchored at the beam's own position — is the lap the field almost closes. Laps shorter than the **minimum loop period** are ignored, and opposing/perpendicular returns never count.
+2. That lap is committed as the loop rail. Its closure error (the seam) is stitched smoothly into the lap so the rail is one closed curve; without the stitch the seam is wider than the pull tolerance and the beam would cross the junction unguided every lap.
+3. The force pulls the beam toward the nearest compatible section of the rail and matches the local speed and heading, aiming slightly ahead so it joins the rail instead of braking against it. Pull acts only inside the **distance falloff** and **direction fade** tolerances (defaults 40 px / 30°) with full authority up to 75% of each, fading smoothly to exactly zero at them — so a crossing branch moving the wrong way can never capture the beam.
+4. While the beam rides the rail, the committed shape is frozen and only the grace timer refreshes; a better-scoring loop elsewhere cannot hijack the ride. A rail that loses the beam re-locks onto the best new candidate after a short grace period, and an unrelated loop can capture the beam only when the forecast shows the beam reaching its entry within a few seconds.
+5. A second *guided* forecast pass follows the committed loop, so the displayed cyan forecast matches the forces the beam will actually feel. No particle teleportation or velocity snapping occurs.
 
-Only **future** forecast states are eligible. Past points were deliberately rejected: they turn the guide into a history rail after a field edit and make a nearby outgoing branch compete with the return branch. A future target expresses the intended next traversal and remains useful for loop closure.
+The unguided first pass keeps detection honest: it never depends on the guide's own limited authority, and the rail evolves smoothly with field edits instead of becoming a stale history line.
 
 Enable **Show guidance state and forces** to inspect the exact decision:
 
-- green ring: selected future return position, on the cyan trajectory;
-- green arrow: movement vector at that target;
+- green closed curve: the committed loop rail;
+- green ring: the aim point on the rail (slightly ahead of the nearest section);
+- green arrow: rail movement at the aim point;
 - cyan arrow: current particle movement vector;
-- dashed amber line: position error;
-- white arrow: actual combined position/velocity matching force;
+- dashed amber line: beam offset to the rail;
+- white arrow: actual matching force;
 - amber arrows: guide forces used while generating the forecast;
-- numeric readout: target lead time, position error, movement speed/angle error, and force.
+- numeric readout: loop period, riding/seeking state, rail offset in px and degrees, movement error, and force.
 
 The white arrow is hidden below magnitude 0.25 to avoid enlarging numerical dust; the readout still reports the exact value. Arrow lengths use a square-root scale.
 
@@ -70,10 +71,10 @@ node --test tests/*.test.js
 node experiments/guidance-probe.js
 ```
 
-`experiments/guidance-probe.js` reports synthetic target selection and compares phase recurrence with guidance disabled and enabled. `experiments/browser-smoke.js` is an optional Playwright smoke test; install Playwright outside the runtime tree and optionally supply `BROWSER_EXECUTABLE`.
+`experiments/guidance-probe.js` reports loop detection and compares phase recurrence with guidance disabled and enabled. `experiments/loop-sweep.js` sweeps guide strength against pull tolerance; `experiments/validate-tuned.js` checks the tuned defaults over long runs, determinism, and magnet perturbation recovery. `experiments/browser-smoke.js` is an optional Playwright smoke test; install Playwright outside the runtime tree and optionally supply `BROWSER_EXECUTABLE`.
 
 ## Prototype boundaries / next work
 
-Scenario solvability and difficulty are not calibrated. The stable status exists, but no known winning control preset is supplied. The new guide improves phase recurrence at the default setting in the deterministic probe, but guide strength remains gameplay tuning rather than a physical constant. The next step is parameter sweeps and playtesting across magnet edits, target duties, and cooling exposure.
+Scenario solvability and difficulty are not calibrated. The stable status exists, but no known winning control preset is supplied: the loop-lock guide closes the orbit at the default settings (recurrence median ~5 px, ~96% of the time locked to a lap), yet which targets that orbit feeds is still what the player shapes with magnets. Guide strength remains gameplay tuning rather than a physical constant. The next step is playtesting across magnet edits, target duties, and cooling exposure, and shipping at least one known-stable magnet preset.
 
 Dwell is integrated along each sampled line segment using timestamp intervals. The live path uses 120 Hz steps; the forecast stores 40 Hz samples. Curvature and within-step reflector kinks are therefore approximated by chords.

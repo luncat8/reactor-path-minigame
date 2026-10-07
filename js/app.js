@@ -1,8 +1,8 @@
 (function () {
 	'use strict';
 	const { Reactor, DT, TAU } = ReactorCore;
-	// The debug overlay shows the selected return state and all three vectors used to judge it:
-	// target movement, current movement, and the resulting phase-matching force.
+	// The debug overlay shows the committed loop rail and all three vectors used to judge it:
+	// rail movement at the aim point, current movement, and the resulting matching force.
 	const GUIDE_ARROW_MINIMUM = 0.25;
 	const MOVEMENT_VECTOR_TIME = 0.22;
 	const sim = new Reactor();
@@ -16,7 +16,7 @@
 		guideDistance: $('guide-distance'), guideDistanceValue: $('guide-distance-value'),
 		guideDirection: $('guide-direction'), guideDirectionValue: $('guide-direction-value'),
 		guideVelocity: $('guide-velocity'), guideVelocityValue: $('guide-velocity-value'),
-		guideDelay: $('guide-delay'), guideDelayValue: $('guide-delay-value'), guideReadout: $('guide-readout'),
+		guidePeriod: $('guide-period'), guidePeriodValue: $('guide-period-value'), guideReadout: $('guide-readout'),
 		debugGuidance: $('debug-guidance'), pause: $('pause'), step: $('step'),
 		clock: $('clock'), status: $('status'), light: $('status-light'), stability: $('stability'), cooling: $('cooling-value')
 	};
@@ -63,22 +63,23 @@
 		ui.polarity.textContent = item.polarity > 0 ? '+  Attract · click to reverse' : '−  Repel · click to reverse';
 	}
 
-	function changed() {
-		// Recompute from the unchanged live state, including while paused.
-		sim.predict();
+	function changed(fieldEdit) {
+		// Recompute from the unchanged live state, including while paused. A field edit
+		// force-re-derives the loop rail so it follows the new field even mid-ride.
+		sim.predict(fieldEdit);
 		sim.forecastClock = 0;
 		sim.stableTime = 0;
 		syncControls();
 		updateUI();
 	}
-	ui.angle.addEventListener('input', () => { instrument().angle = Number(ui.angle.value) * Math.PI / 180; changed(); });
-	ui.strength.addEventListener('input', () => { instrument().strength = Number(ui.strength.value); changed(); });
-	ui.polarity.addEventListener('click', () => { instrument().polarity *= -1; changed(); });
+	ui.angle.addEventListener('input', () => { instrument().angle = Number(ui.angle.value) * Math.PI / 180; changed(true); });
+	ui.strength.addEventListener('input', () => { instrument().strength = Number(ui.strength.value); changed(true); });
+	ui.polarity.addEventListener('click', () => { instrument().polarity *= -1; changed(true); });
 	ui.guideStrength.addEventListener('input', () => { sim.guideStrength = Number(ui.guideStrength.value); changed(); });
 	ui.guideDistance.addEventListener('input', () => { sim.guideDistance = Number(ui.guideDistance.value); changed(); });
 	ui.guideDirection.addEventListener('input', () => { sim.guideDirection = Number(ui.guideDirection.value); changed(); });
 	ui.guideVelocity.addEventListener('input', () => { sim.guideVelocity = Number(ui.guideVelocity.value); changed(); });
-	ui.guideDelay.addEventListener('input', () => { sim.guideDelay = Number(ui.guideDelay.value); changed(); });
+	ui.guidePeriod.addEventListener('input', () => { sim.guidePeriod = Number(ui.guidePeriod.value); changed(); });
 	ui.debugGuidance.addEventListener('change', () => {
 		$('guide-legend').classList.toggle('visible', ui.debugGuidance.checked);
 		ui.guideReadout.classList.toggle('visible', ui.debugGuidance.checked);
@@ -99,7 +100,7 @@
 		ui.guideDistance.value = sim.guideDistance;
 		ui.guideDirection.value = sim.guideDirection;
 		ui.guideVelocity.value = sim.guideVelocity;
-		ui.guideDelay.value = sim.guideDelay;
+		ui.guidePeriod.value = sim.guidePeriod;
 		ui.debugGuidance.checked = false;
 		$('guide-legend').classList.remove('visible');
 		ui.guideReadout.classList.remove('visible');
@@ -161,7 +162,7 @@
 		const item = instrumentAt(drag.target);
 		if (drag.mode === 'move') {
 			perimeter(item, pointer.x + drag.offsetX, pointer.y + drag.offsetY);
-			changed();
+			changed(true);
 			return;
 		}
 		const dx = pointer.x - item.x, dy = pointer.y - item.y;
@@ -172,19 +173,19 @@
 		else if (delta < -Math.PI) delta += TAU;
 		item.angle += delta;
 		drag.lastAngle = angle;
-		changed();
+		changed(true);
 	});
 	function stopDrag() { drag.mode = ''; drag.target = -1; }
 	canvas.addEventListener('pointerup', stopDrag);
 	canvas.addEventListener('pointercancel', stopDrag);
 	canvas.addEventListener('lostpointercapture', stopDrag);
 	canvas.addEventListener('wheel', event => {
-		event.preventDefault(); instrument().angle += Math.sign(event.deltaY) * Math.PI / 36; changed();
+		event.preventDefault(); instrument().angle += Math.sign(event.deltaY) * Math.PI / 36; changed(true);
 	}, { passive: false });
 	canvas.addEventListener('keydown', event => {
 		const key = event.key.toLowerCase(), item = instrument();
 		if (key === ' ') { event.preventDefault(); togglePause(); return; }
-		if (key === 'q' || key === 'e') { event.preventDefault(); item.angle += (key === 'q' ? -1 : 1) * Math.PI / 36; changed(); return; }
+		if (key === 'q' || key === 'e') { event.preventDefault(); item.angle += (key === 'q' ? -1 : 1) * Math.PI / 36; changed(true); return; }
 		if (selected >= 4 || !key.startsWith('arrow')) return;
 		event.preventDefault();
 		// Move along the perimeter, including around corners.
@@ -194,7 +195,7 @@
 		else if (s < 1240) { item.x = 350; item.y = s - 970; }
 		else if (s < 1940) { item.x = 1590 - s; item.y = 270; }
 		else { item.x = -350; item.y = 2210 - s; }
-		changed();
+		changed(true);
 	});
 
 	function resize() {
@@ -238,14 +239,24 @@
 		ctx.lineWidth = 1.6;
 		arrow(x, y, vx / speed, vy / speed, Math.max(10, Math.min(55, speed * MOVEMENT_VECTOR_TIME)), 5);
 	}
+	function drawLoopRail() {
+		const loop = sim.loop;
+		if (loop.count < 2) return;
+		ctx.strokeStyle = '#8bff9e3d'; ctx.lineWidth = 2.2; ctx.beginPath();
+		for (let i = 0; i < loop.count; i++) {
+			if (i === 0) ctx.moveTo(loop.x[i], loop.y[i]);
+			else ctx.lineTo(loop.x[i], loop.y[i]);
+		}
+		ctx.closePath(); ctx.stroke();
+	}
 	function drawLiveGuidance() {
 		if (!ui.debugGuidance.checked) return;
 		const d = sim.liveDebug;
 		ctx.save();
 		movementArrow(sim.particle.x, sim.particle.y, sim.particle.vx, sim.particle.vy, '#70e2d3');
-		if (sim.guideStrength <= 0 || sim.guideDistance <= 0 || sim.guideDirection <= 0 || d.target < 0) { ctx.restore(); return; }
-		// The dashed line is position error. The two movement arrows expose whether this return pass
-		// has a useful phase match; the white arrow is the actual combined position/velocity force.
+		if (sim.guideStrength <= 0 || sim.guideDistance <= 0 || sim.guideDirection <= 0 || !d.valid) { ctx.restore(); return; }
+		// The dashed line is position error to the aim point on the rail. The two movement
+		// arrows expose whether the local rail phase matches; the white arrow is the force.
 		ctx.strokeStyle = '#f3bd7290'; ctx.lineWidth = 1.1; ctx.setLineDash([3, 3]);
 		line(sim.particle.x, sim.particle.y, d.tx, d.ty);
 		ctx.setLineDash([]);
@@ -286,6 +297,7 @@
 			else ctx.lineTo(sim.path.x[i], sim.path.y[i]);
 		}
 		ctx.stroke();
+		if (ui.debugGuidance.checked) drawLoopRail();
 		drawGuidanceVectors();
 		ctx.strokeStyle = '#bdeee0a6'; ctx.lineWidth = 1.7; ctx.beginPath();
 		for (let i = 0; i < sim.trailCount; i++) {
@@ -333,7 +345,7 @@
 		ui.guideDistanceValue.textContent = sim.guideDistance > 0 ? sim.guideDistance + ' px' : 'OFF';
 		ui.guideDirectionValue.textContent = sim.guideDirection + '°';
 		ui.guideVelocityValue.textContent = sim.guideVelocity.toFixed(2) + '×';
-		ui.guideDelayValue.textContent = sim.guideDelay.toFixed(1) + ' s';
+		ui.guidePeriodValue.textContent = sim.guidePeriod.toFixed(1) + ' s';
 		updateGuideReadout();
 		for (let i = 0; i < sim.targets.length; i++) {
 			const t = sim.targets[i];
@@ -350,11 +362,11 @@
 	function updateGuideReadout() {
 		if (!ui.debugGuidance.checked) { ui.guideReadout.textContent = ''; return; }
 		const d = sim.liveDebug;
-		if (d.target < 0) { ui.guideReadout.textContent = 'no compatible future return point within reach — guidance idle'; return; }
-		ui.guideReadout.textContent = 'target +' + d.lead.toFixed(1) + ' s · position ' + d.distance.toFixed(1) +
-			' px · movement Δ ' + d.speedError.toFixed(1) + ' px/s / ' + Math.round(d.angle * 180 / Math.PI) +
-			'° · force ' + d.magnitude.toFixed(2) + (d.timeFactor < 1 ? ' · future fade ' + Math.round(d.timeFactor * 100) + '%' : '') +
-			(d.magnitude < GUIDE_ARROW_MINIMUM ? ' (below arrow scale)' : '');
+		if (!d.valid) { ui.guideReadout.textContent = 'no closed loop committed — guidance idle'; return; }
+		ui.guideReadout.textContent = 'loop ' + d.period.toFixed(1) + ' s · ' + (d.engaged ? 'riding' : 'seeking') +
+			' · rail offset ' + d.distance.toFixed(1) + ' px / ' + Math.round(d.angle * 180 / Math.PI) +
+			'° · movement Δ ' + d.speedError.toFixed(1) + ' px/s · force ' + d.magnitude.toFixed(2) +
+			(d.magnitude < GUIDE_ARROW_MINIMUM && d.engaged ? ' (below arrow scale)' : '');
 	}
 	function frame(now) {
 		const elapsed = last ? Math.min((now - last) / 1000, 0.1) : 0;

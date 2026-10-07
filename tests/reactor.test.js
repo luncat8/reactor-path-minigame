@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { Reactor, DT, circleFraction, reflect } = require('../js/reactor.js');
+const { Reactor, DT, TAU, circleFraction, reflect } = require('../js/reactor.js');
 const near = (a, b, tolerance = 1e-9) => assert.ok(Math.abs(a - b) < tolerance, `${a} ≠ ${b}`);
 const FORECAST_TOLERANCE = 0.02;
 
@@ -86,7 +86,7 @@ test('magnet position, orientation, and polarity influence forecasts', () => {
 });
 
 
-// Synthetic trajectory states are [x, y, absolute time, vx, vy].
+// Synthetic forecast states are [x, y, absolute time, vx, vy].
 function makeRoute(states) {
 	const count = states.length;
 	const route = {
@@ -101,137 +101,133 @@ function makeRoute(states) {
 	return route;
 }
 
-const targetState = () => ({
-	segment: -1, x: 0, y: 0, vx: 0, vy: 0, time: 0, lead: 0,
-	distance: 0, angle: 0, speedError: 0, timeFactor: 0, score: Infinity
-});
-
-function horizontalRoute(y = 0, speed = 100) {
-	return makeRoute([[0, y, 3, speed, 0], [100, y, 4, speed, 0]]);
+// The route leaves the beam and returns near its start one lap later: the field almost
+// closes this lap. `seam` is the closure error in px, `seamSpeed` the velocity error.
+function returnRoute(seam = 6, seamSpeed = 0, period = 3) {
+	return makeRoute([
+		[0, 0, 0, 100, 0],
+		[70, 45, period / 4, 60, 80],
+		[140, 0, period / 2, -100, 0],
+		[70, -45, 3 * period / 4, 60, -80],
+		[seam, 0, period, 100 + seamSpeed, 0]
+	]);
 }
 
-test('guide target is interpolated on a segment rather than snapped to a sample', () => {
+function setCircleLoop(sim, radius, speed, count) {
+	const loop = sim.loop;
+	for (let k = 0; k < count; k++) {
+		const a = TAU * k / count;
+		loop.x[k] = radius * Math.cos(a); loop.y[k] = radius * Math.sin(a);
+		loop.vx[k] = -speed * Math.sin(a); loop.vy[k] = speed * Math.cos(a);
+	}
+	loop.count = count;
+	loop.start = 0;
+	loop.period = TAU * radius / speed;
+	loop.step = loop.period / (count - 1);
+}
+
+test('loop detection finds the beam\'s own almost-closed lap', () => {
 	const sim = new Reactor();
-	const target = targetState();
-	const found = sim.findGuideTarget({ x: 20, y: 8, vx: 100, vy: 0 }, horizontalRoute(), 0, target);
-	assert.equal(found, true);
-	near(target.x, 20);
-	near(target.y, 0);
-	near(target.distance, 8);
-	near(target.vx, 100);
-	near(target.vy, 0);
-	assert.ok(target.lead >= sim.guideDelay + 1, 'the selected state has completed the one-second fade');
+	sim.particle.x = 0; sim.particle.y = 0;
+	const pair = sim.findLoopPair(returnRoute());
+	assert.equal(pair.found, true);
+	assert.equal(pair.i, 0);
+	assert.equal(pair.j, 4);
 });
 
-test('the near future is excluded and the target is always later than the query', () => {
+test('loop detection rejects an opposing recurrence at the same place', () => {
 	const sim = new Reactor();
-	sim.guideDelay = 2;
-	const route = makeRoute([
-		[0, 0, -2, 100, 0], [20, 0, -1, 100, 0],
-		[80, 30, 2.1, 100, 0], [120, 30, 4, 100, 0]
-	]);
-	const target = targetState();
-	assert.equal(sim.findGuideTarget({ x: 10, y: 2, vx: 100, vy: 0 }, route, 0, target), true);
-	assert.ok(target.time > 2, `target time ${target.time} must be beyond the excluded future`);
-	assert.ok(target.y > 10, 'a geometrically closer past segment must not be selected');
+	sim.particle.x = 0; sim.particle.y = 0;
+	const route = returnRoute();
+	route.vx[4] = -100;
+	assert.equal(sim.findLoopPair(route).found, false);
 });
 
-test('phase-space selection rejects a closer crossing with the wrong movement', () => {
+test('loop detection ignores recurrences shorter than the minimum lap period', () => {
 	const sim = new Reactor();
-	const route = makeRoute([
-		[-20, 1, 3, -100, 0], [20, 1, 4, -100, 0],
-		[-20, 8, 5, 100, 0], [20, 8, 6, 100, 0]
-	]);
-	const target = targetState();
-	assert.equal(sim.findGuideTarget({ x: 0, y: 0, vx: 100, vy: 0 }, route, 0, target), true);
-	near(target.y, 8);
-	assert.equal(target.segment, 2);
-	near(target.angle, 0);
+	sim.particle.x = 0; sim.particle.y = 0;
+	assert.equal(sim.findLoopPair(returnRoute(6, 0, 1)).found, false);
+	sim.guidePeriod = 0.5;
+	assert.equal(sim.findLoopPair(returnRoute(6, 0, 1)).found, true);
 });
 
-test('phase-space score can prefer matching speed over a spatially closer pass', () => {
+test('the committed loop is stitched into one closed rail', () => {
 	const sim = new Reactor();
-	const route = makeRoute([
-		[-20, 1, 3, 300, 0], [20, 1, 4, 300, 0],
-		[-20, 10, 5, 100, 0], [20, 10, 6, 100, 0]
-	]);
-	const target = targetState();
-	sim.findGuideTarget({ x: 0, y: 0, vx: 100, vy: 0 }, route, 0, target);
-	near(target.y, 10);
-	near(target.speedError, 0);
+	sim.commitLoop(returnRoute(9, 12), { i: 0, j: 4 });
+	const loop = sim.loop;
+	assert.equal(loop.count, 5);
+	near(loop.x[loop.count - 1], loop.x[0]);
+	near(loop.y[loop.count - 1], loop.y[0]);
+	near(loop.vx[loop.count - 1], loop.vx[0]);
+	near(loop.vy[loop.count - 1], loop.vy[0]);
+	const intervals = loop.count - 1;
+	const a = sim.loopStateAt(0, { x: 0, y: 0, vx: 0, vy: 0 });
+	const b = sim.loopStateAt(intervals - 1e-9, { x: 0, y: 0, vx: 0, vy: 0 });
+	assert.ok(Math.hypot(a.x - b.x, a.y - b.y) < 0.01, 'the rail wraps around without a seam');
 });
 
-test('opposing and perpendicular trajectory passes never guide the particle', () => {
+test('guidance is idle without a committed loop and pulls a nearby aligned beam onto the rail', () => {
 	const sim = new Reactor();
-	const opposing = makeRoute([[0, 0, 3, -100, 0], [100, 0, 4, -100, 0]]);
-	const perpendicular = makeRoute([[0, 0, 3, 0, 100], [100, 0, 4, 0, 100]]);
-	const particle = { x: 20, y: 10, vx: 100, vy: 0 };
-	assert.equal(sim.findGuideTarget(particle, opposing, 0, targetState()), false);
-	assert.equal(sim.findGuideTarget(particle, perpendicular, 0, targetState()), false);
-	near(Math.hypot(...Object.values(sim.guidanceVector(particle, opposing, 0, 1, {}))), 0);
-});
-
-test('position matching pulls toward the green target and is idle in the target state', () => {
-	const sim = new Reactor();
-	const route = horizontalRoute();
+	sim.loop.count = 0;
+	near(Math.hypot(...Object.values(sim.guidanceVector({ x: 0, y: 0, vx: 100, vy: 0 }, 1, {}))), 0);
+	setCircleLoop(sim, 100, 100, 64);
 	const debug = {};
-	const force = sim.guidanceVector({ x: 20, y: 20, vx: 100, vy: 0 }, route, 0, 1, debug);
-	near(force.x, 0);
-	assert.ok(force.y < 0);
-	near(debug.tx, 20); near(debug.ty, 0);
-	near(debug.tvx, 100); near(debug.tvy, 0);
-	const idle = sim.guidanceVector({ x: 20, y: 0, vx: 100, vy: 0 }, route, 0, 1, {});
-	near(idle.x, 0); near(idle.y, 0);
+	const force = sim.guidanceVector({ x: 120, y: 0, vx: 0, vy: 100 }, 0.9, debug);
+	assert.ok(force.x < -1, 'the pull points inward, toward the rail');
+	near(force.y, 0, 1);
+	assert.equal(debug.engaged, true);
+	near(debug.distance, 20, 0.5);
 });
 
-test('movement matching changes velocity even when position already matches', () => {
+test('the pull is zero outside the distance and direction tolerances', () => {
 	const sim = new Reactor();
-	const route = makeRoute([[0, 0, 3, 100, 30], [100, 0, 4, 100, 30]]);
-	const debug = {};
-	const force = sim.guidanceVector({ x: 20, y: 0, vx: 100, vy: 0 }, route, 0, 1, debug);
-	near(force.x, 0);
-	assert.ok(force.y > 0, 'force should turn the particle toward the target movement vector');
-	near(debug.distance, 0);
-	near(debug.speedError, 30);
+	setCircleLoop(sim, 100, 100, 64);
+	const magnitude = p => Math.hypot(...Object.values(sim.guidanceVector(p, 0.9, {})));
+	near(magnitude({ x: 141, y: 0, vx: 0, vy: 100 }), 0);
+	near(magnitude({ x: 120, y: 0, vx: 0, vy: -100 }), 0);
+	sim.guideDistance = 15;
+	near(magnitude({ x: 120, y: 0, vx: 0, vy: 100 }), 0);
 });
 
-test('distance and heading controls smoothly fade the state-matching force', () => {
+test('distance and heading fades reduce authority smoothly toward the tolerances', () => {
 	const sim = new Reactor();
 	sim.guideVelocity = 0;
-	const route = horizontalRoute();
-	const magnitude = (offset, degrees) => {
-		const angle = degrees * Math.PI / 180;
-		const force = sim.guidanceVector({ x: 20, y: offset, vx: Math.cos(angle) * 100, vy: Math.sin(angle) * 100 }, route, 0, 1, {});
-		return Math.hypot(force.x, force.y);
-	};
-	const near20 = magnitude(20, 0);
-	assert.ok(near20 > 0);
-	assert.ok(magnitude(90, 0) < near20);
-	near(magnitude(100, 0), 0);
-	assert.ok(magnitude(20, 60) < near20);
-	near(magnitude(20, 90), 0);
-	sim.guideDirection = 45;
-	near(magnitude(20, 45), 0);
+	setCircleLoop(sim, 100, 100, 64);
+	const magnitude = p => Math.hypot(...Object.values(sim.guidanceVector(p, 0.9, {})));
+	// Past the full-authority plateau the fade must beat the growing position error:
+	// 39 px from the rail is weaker than 30 px, and 40 px is exactly zero.
+	const plateau = magnitude({ x: 130, y: 0, vx: 0, vy: 100 });
+	const fading = magnitude({ x: 139, y: 0, vx: 0, vy: 100 });
+	assert.ok(plateau > fading && fading > 0, 'force fades with distance');
+	const aligned = magnitude({ x: 120, y: 0, vx: 0, vy: 100 });
+	const skewed = magnitude({ x: 120, y: 0, vx: 44, vy: 90 });
+	assert.ok(skewed < aligned, 'force fades with heading error');
 });
 
-test('the one-second temporal fade applies after the excluded future', () => {
+test('the default scenario commits a loop and the beam rides it', () => {
 	const sim = new Reactor();
-	sim.guideDelay = 2;
-	const route = makeRoute([[0, 0, 2.5, 100, 0], [0.01, 0, 2.51, 100, 0]]);
-	const target = targetState();
-	assert.equal(sim.findGuideTarget({ x: 0, y: 10, vx: 100, vy: 0 }, route, 0, target), true);
-	assert.ok(target.timeFactor > 0 && target.timeFactor < 1);
-	near(target.timeFactor, 0.5, 0.02);
+	assert.ok(sim.loop.count > 2, 'the initial prediction already almost closes a lap');
+	let engaged = 0, held = 0, samples = 0;
+	for (let i = 0; i < 120 * 30; i++) {
+		sim.step();
+		if (sim.time < 8 || i % 4) continue;
+		samples++;
+		if (sim.liveDebug.engaged) engaged++;
+		if (sim.loop.count > 0) held++;
+		assert.ok(Number.isFinite(sim.particle.x) && Number.isFinite(sim.particle.vy));
+	}
+	assert.ok(held / samples > 0.9, 'the committed loop is held');
+	assert.ok(engaged / samples > 0.8, 'the beam rides the rail');
 });
 
-test('debug target, movement vectors, and live force describe one current state', () => {
+test('debug aim point, movement vectors, and live force describe one current state', () => {
 	const sim = new Reactor();
-	for (let i = 0; i < 120; i++) sim.step();
+	for (let i = 0; i < 120 * 12; i++) sim.step();
 	const d = sim.liveDebug;
-	assert.ok(d.target >= 0);
-	assert.ok(d.lead > sim.guideDelay);
-	near(Math.hypot(d.tx - sim.particle.x, d.ty - sim.particle.y), d.distance, 1e-6);
-	assert.ok(Number.isFinite(d.tvx) && Number.isFinite(d.tvy));
+	assert.equal(d.valid, sim.loop.count > 1);
+	if (!d.valid) return;
+	assert.ok(Number.isFinite(d.tx) && Number.isFinite(d.tvx));
+	assert.ok(d.period > 0);
 	near(Math.hypot(sim.liveForce.x, sim.liveForce.y), d.magnitude, 1e-9);
 });
 
@@ -248,22 +244,20 @@ test('forecast stores movement states and force samples without mutating live st
 	near(sim.path.vy[0], before.vy);
 });
 
-test('forecast refresh keeps target time in the future rather than retaining past nodes', () => {
+test('forecast refresh keeps the display forecast rooted at the live state', () => {
 	const sim = new Reactor();
 	for (let i = 0; i < 120 * 8; i++) {
 		sim.step();
-		if (sim.liveDebug.target < 0) continue;
-		assert.ok(sim.path.t[sim.liveDebug.target + 1] > sim.time + sim.guideDelay);
-		assert.ok(sim.liveDebug.lead > sim.guideDelay);
+		assert.ok(Math.abs(sim.path.t[0] - sim.time) < 1, 'refresh never displays a stale start');
 	}
 });
 
 test('long runs remain finite and bounded across guide settings', () => {
 	for (const strength of [0, 1.5]) {
-		for (const delay of [1, 3]) {
+		for (const distance of [0, 40, 120]) {
 			const sim = new Reactor();
 			sim.guideStrength = strength;
-			sim.guideDelay = delay;
+			sim.guideDistance = distance;
 			for (let i = 0; i < 120 * 20; i++) {
 				sim.step();
 				assert.ok(Number.isFinite(sim.particle.vx) && Number.isFinite(sim.particle.vy));

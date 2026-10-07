@@ -21,6 +21,15 @@
 	// across the lap keeps tipping the closure over the gate and the rail is dropped.
 	const LOOP_DETECT_DISTANCE = 100;
 	const LOOP_DETECT_ANGLE = 45;
+	// The closure error is blended into this last fraction of the lap, so the committed
+	// rail is one closed curve. Without the stitch the seam (median ~50 px, wider than
+	// the pull tolerance) lets the beam cross the junction unguided every lap, and the
+	// rail only ever follows the drift instead of correcting it. 0 blends linearly over
+	// the whole lap (a gentle bias); a value near 1 concentrates a C1 bend in the tail.
+	const LOOP_STITCH_START = 0;
+	// An unrelated loop may capture the beam only when the forecast shows the beam
+	// arriving at its entry within this window; far-future entries are never committed.
+	const LOOP_CAPTURE_WINDOW = 6;
 	// Full authority up to this fraction of a tolerance, then a smooth cutoff at 100%:
 	// inside the tolerance the guide really pulls, beyond it there is exactly no force.
 	const GUIDE_FULL_FACTOR = 0.75;
@@ -88,8 +97,8 @@
 			this.anchor = { segment: -1, position: 0, distance: 0, angle: 0 };
 			this.foot = { x: 0, y: 0, vx: 0, vy: 0 };
 			this.aim = { x: 0, y: 0, vx: 0, vy: 0 };
-			this.pair = { found: false, i: 0, j: 0, score: Infinity };
-			this.alternatePair = { found: false, i: 0, j: 0, score: Infinity };
+		this.pair = { found: false, i: 0, j: 0, score: Infinity };
+		this.alternatePair = { found: false, i: 0, j: 0, score: Infinity };
 			this.liveForce = { x: 0, y: 0 };
 			this.liveDebug = {
 				valid: false, engaged: false, tx: 0, ty: 0, tvx: 0, tvy: 0,
@@ -102,7 +111,7 @@
 
 		reset() {
 			this.time = 0;
-			this.guideStrength = 0.65;
+			this.guideStrength = 0.9;
 			this.guideDistance = 40;
 			this.guideDirection = 30;
 			this.guideVelocity = 0.35;
@@ -143,84 +152,101 @@
 		this.predict();
 		}
 
-		// A loop candidate is a near-recurrence anchored at the beam: the earlier state lies
-		// within the detection radius of the beam's current position, and a later forecast
-		// state returns to it inside the detection tolerances — the beam's own next lap,
-		// closed by the field. The rail therefore rolls with the beam and evolves smoothly
-		// with the field. `alternate` tracks the best candidate anchored elsewhere, so a
-		// passing loop can still capture the beam once the held rail expires.
-		findLoopPair(route) {
-			const pair = this.pair;
-			const alternate = this.alternatePair;
-			pair.found = false;
-			pair.score = Infinity;
-			alternate.found = false;
-			alternate.score = Infinity;
-			if (route.count < 2 || this.guideDistance <= 0 || this.guideDirection <= 0) return pair;
-			const reach = LOOP_DETECT_DISTANCE;
-			const reach2 = reach * reach;
-			const angleLimit = Math.min(Math.PI / 2, LOOP_DETECT_ANGLE * Math.PI / 180);
-			const minimumCosine = Math.cos(angleLimit);
-			const anchorX = this.particle.x, anchorY = this.particle.y;
-			let first = 1;
-			for (let i = 0; i < route.count; i++) {
-				if (first <= i) first = i + 1;
-				while (first < route.count && route.t[first] - route.t[i] < this.guidePeriod) first++;
-				if (first >= route.count) break;
-				const x = route.x[i], y = route.y[i];
-				const vx = route.vx[i], vy = route.vy[i];
-				const speed = Math.hypot(vx, vy);
-				if (speed < 1e-8) continue;
-				const beamX = x - anchorX, beamY = y - anchorY;
-				const atBeam = beamX * beamX + beamY * beamY < reach2;
-				for (let j = first; j < route.count; j++) {
-					const dx = route.x[j] - x;
-					if (dx >= reach || dx <= -reach) continue;
-					const dy = route.y[j] - y;
-					if (dy >= reach || dy <= -reach) continue;
-					const distance2 = dx * dx + dy * dy;
-					if (distance2 >= reach2) continue;
-					const tvx = route.vx[j], tvy = route.vy[j];
-					const targetSpeed = Math.hypot(tvx, tvy);
-					if (targetSpeed < 1e-8) continue;
-					if ((vx * tvx + vy * tvy) / (speed * targetSpeed) < minimumCosine) continue;
-					const speedX = tvx - vx, speedY = tvy - vy;
-					const score = distance2 + (speedX * speedX + speedY * speedY) * GUIDE_PHASE_TIME * GUIDE_PHASE_TIME;
-					if (atBeam) {
-						if (score >= pair.score) continue;
-						pair.found = true;
-						pair.score = score;
-						pair.i = i;
-						pair.j = j;
-					} else {
-						if (score >= alternate.score) continue;
-						alternate.found = true;
-						alternate.score = score;
-						alternate.i = i;
-						alternate.j = j;
-					}
+	// A loop candidate is a near-recurrence anchored at the beam: the earlier state lies
+	// within the detection radius of the beam's current position, and a later forecast
+	// state returns to it inside the detection tolerances — the beam's own next lap,
+	// closed by the field. The rail therefore rolls with the beam and evolves smoothly
+	// with the field. `alternate` tracks the best candidate anchored elsewhere, so a
+	// passing loop can still capture the beam once the held rail expires.
+	findLoopPair(route) {
+		const pair = this.pair;
+		const alternate = this.alternatePair;
+		pair.found = false;
+		pair.score = Infinity;
+		alternate.found = false;
+		alternate.score = Infinity;
+		if (route.count < 2 || this.guideDistance <= 0 || this.guideDirection <= 0) return pair;
+		const reach = LOOP_DETECT_DISTANCE;
+		const reach2 = reach * reach;
+		const angleLimit = Math.min(Math.PI / 2, LOOP_DETECT_ANGLE * Math.PI / 180);
+		const minimumCosine = Math.cos(angleLimit);
+		const anchorX = this.particle.x, anchorY = this.particle.y;
+		let first = 1;
+		for (let i = 0; i < route.count; i++) {
+			if (first <= i) first = i + 1;
+			while (first < route.count && route.t[first] - route.t[i] < this.guidePeriod) first++;
+			if (first >= route.count) break;
+			const x = route.x[i], y = route.y[i];
+			const vx = route.vx[i], vy = route.vy[i];
+			const speed = Math.hypot(vx, vy);
+			if (speed < 1e-8) continue;
+			const beamX = x - anchorX, beamY = y - anchorY;
+			const atBeam = beamX * beamX + beamY * beamY < reach2;
+			for (let j = first; j < route.count; j++) {
+				const dx = route.x[j] - x;
+				if (dx >= reach || dx <= -reach) continue;
+				const dy = route.y[j] - y;
+				if (dy >= reach || dy <= -reach) continue;
+				const distance2 = dx * dx + dy * dy;
+				if (distance2 >= reach2) continue;
+				const tvx = route.vx[j], tvy = route.vy[j];
+				const targetSpeed = Math.hypot(tvx, tvy);
+				if (targetSpeed < 1e-8) continue;
+				if ((vx * tvx + vy * tvy) / (speed * targetSpeed) < minimumCosine) continue;
+				const speedX = tvx - vx, speedY = tvy - vy;
+				const score = distance2 + (speedX * speedX + speedY * speedY) * GUIDE_PHASE_TIME * GUIDE_PHASE_TIME;
+				if (atBeam) {
+					if (score >= pair.score) continue;
+					pair.found = true;
+					pair.score = score;
+					pair.i = i;
+					pair.j = j;
+				} else {
+					if (score >= alternate.score) continue;
+					alternate.found = true;
+					alternate.score = score;
+					alternate.i = i;
+					alternate.j = j;
 				}
 			}
-			return pair;
 		}
+		return pair;
+	}
 
-		commitLoop(route, pair) {
-			const loop = this.loop;
-			const count = pair.j - pair.i + 1;
-			for (let k = 0; k < count; k++) {
-				loop.x[k] = route.x[pair.i + k];
-				loop.y[k] = route.y[pair.i + k];
-				loop.vx[k] = route.vx[pair.i + k];
-				loop.vy[k] = route.vy[pair.i + k];
-			}
-			loop.count = count;
-			loop.start = route.t[pair.i];
-			loop.period = route.t[pair.j] - route.t[pair.i];
-			loop.step = loop.period / (count - 1);
-			loop.entryX = route.x[pair.i];
-			loop.entryY = route.y[pair.i];
-			loop.expire = this.time + LOOP_GRACE;
+	commitLoop(route, pair) {
+		const loop = this.loop;
+		const count = pair.j - pair.i + 1;
+		for (let k = 0; k < count; k++) {
+			loop.x[k] = route.x[pair.i + k];
+			loop.y[k] = route.y[pair.i + k];
+			loop.vx[k] = route.vx[pair.i + k];
+			loop.vy[k] = route.vy[pair.i + k];
 		}
+		loop.count = count;
+		loop.start = route.t[pair.i];
+		loop.period = route.t[pair.j] - route.t[pair.i];
+		loop.step = loop.period / (count - 1);
+		// Stitch the seam: fade the closure error in so sample count - 1 lands exactly on
+		// sample 0 with matching velocity. The rail becomes a closed curve the guide can
+		// hold with pull tolerance alone.
+		const intervals = count - 1;
+		const blendStart = LOOP_STITCH_START > 0 ? Math.min(Math.max(1, Math.round(intervals * LOOP_STITCH_START)), intervals - 1) : 0;
+		const gapX = loop.x[0] - loop.x[intervals];
+		const gapY = loop.y[0] - loop.y[intervals];
+		const gapVX = loop.vx[0] - loop.vx[intervals];
+		const gapVY = loop.vy[0] - loop.vy[intervals];
+		for (let k = blendStart; k <= intervals; k++) {
+			const u = (k - blendStart) / (intervals - blendStart);
+			const f = LOOP_STITCH_START > 0 ? smoothstep(u) : u;
+			loop.x[k] += gapX * f;
+			loop.y[k] += gapY * f;
+			loop.vx[k] += gapVX * f;
+			loop.vy[k] += gapVY * f;
+		}
+		loop.entryX = loop.x[0];
+		loop.entryY = loop.y[0];
+		loop.expire = this.time + LOOP_GRACE;
+	}
 
 		// The committed lap is a closed rail: interval k connects sample k to sample (k + 1),
 		// and the last interval wraps around to sample 0, closing the loop.
@@ -380,22 +406,56 @@
 			next.count = SAMPLES;
 		}
 
-		predict() {
+		// Commit hysteresis. While the beam is on the rail the shape is frozen — only
+		// the grace timer is refreshed — so a better-scoring loop family elsewhere cannot
+		// hijack the ride. Re-fitting happens once the beam has stayed off the rail past
+		// grace, when nothing is held yet, or immediately when `force` is set (a player
+		// field edit), which re-derives the rail from the changed field even mid-ride.
+		commitDecision(force) {
+			const loop = this.loop;
+			const pair = this.pair, alternate = this.alternatePair;
+			if (loop.count > 1) {
+				const riding = this.findLoopAnchor(this.particle, this.anchor) && this.anchor.distance < this.guideDistance;
+				if (riding && !force) {
+					loop.expire = this.time + LOOP_GRACE;
+					return;
+				}
+				if (!force && this.time <= loop.expire) return;
+				if (pair.found) {
+					this.commitLoop(this.proposalPath, pair);
+					return;
+				}
+				if (riding) {
+					// Field changed but the new field offers no fresh lap near the beam yet:
+					// keep the ride alive briefly instead of dropping the rail outright.
+					loop.expire = this.time + LOOP_GRACE;
+					return;
+				}
+				if (alternate.found && this.proposalPath.t[alternate.i] - this.time < LOOP_CAPTURE_WINDOW) {
+					this.commitLoop(this.proposalPath, alternate);
+					return;
+				}
+				loop.count = 0;
+				return;
+			}
+			if (pair.found) {
+				this.commitLoop(this.proposalPath, pair);
+				return;
+			}
+			if (alternate.found && this.proposalPath.t[alternate.i] - this.time < LOOP_CAPTURE_WINDOW) {
+				this.commitLoop(this.proposalPath, alternate);
+			}
+		}
+
+		predict(force) {
 			// Two reusable passes with different jobs. The first pass is unguided: it shows what
 			// the field alone would do, and its best near-recurrence is the loop the field almost
 			// supports — detection never depends on the guide's own limited authority. The second
 			// pass follows the committed loop, so the displayed forecast matches the forces the
-			// beam will actually feel.
+			// beam will actually feel. `force` re-derives the rail after a player field edit.
 			this.forecastInto(this.proposalPath, 0);
-			const pair = this.findLoopPair(this.proposalPath);
-			if (pair.found) {
-				this.commitLoop(this.proposalPath, pair);
-			} else if (this.time > this.loop.expire) {
-				// The rail could not be re-anchored: after the grace period the best
-				// unrelated candidate takes over, or the guide goes idle.
-				if (this.alternatePair.found) this.commitLoop(this.proposalPath, this.alternatePair);
-				else this.loop.count = 0;
-			}
+			this.findLoopPair(this.proposalPath);
+			this.commitDecision(force);
 			this.forecastInto(this.path, this.guideStrength);
 			const live = this.guidanceVector(this.particle, this.guideStrength, this.liveDebug);
 			this.liveForce.x = live.x; this.liveForce.y = live.y;

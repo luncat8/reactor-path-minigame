@@ -99,8 +99,8 @@
 		reset() {
 			this.time = 0;
 			this.guideStrength = 0.65;
-			this.guideDistance = 100;
-			this.guideDirection = 90;
+			this.guideDistance = 40;
+			this.guideDirection = 30;
 			this.guideLookahead = 100;
 			this.planLag = PLAN_LAG_DEFAULT;
 			this.forecastClock = 0;

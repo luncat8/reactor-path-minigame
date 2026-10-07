@@ -143,11 +143,11 @@ test('an offset beam is pulled back to the route, an on-route beam needs no forc
 	const route = line(3.625, 121);
 	const tracking = sim.guidanceVector({ x: 30, y: 0, vx: 145, vy: 0 }, route, 1, null, newGuide(), 4);
 	near(tracking.x, 0, 1e-9); near(tracking.y, 0, 1e-9);
-	const offset = sim.guidanceVector({ x: 30, y: 25, vx: 145, vy: 0 }, route, 1, null, newGuide(), 4);
+	const offset = sim.guidanceVector({ x: 30, y: 10, vx: 145, vy: 0 }, route, 1, null, newGuide(), 4);
 	near(offset.x, 0, 1e-9);
 	assert.ok(offset.y < 0, 'an offset beam is pulled back toward the route');
-	// gain × lateral correction, faded by how far the beam sits inside the reach
-	near(Math.abs(offset.y), 25 * 0.5 * 0.84375, 1e-9);
+	// gain × lateral correction, faded by how far the beam sits inside the reach (10 px in 40 px reach -> u=0.25)
+	near(Math.abs(offset.y), 10 * 0.5 * 0.84375, 1e-9);
 });
 
 test('opposing and perpendicular passes of a self-crossing route cannot capture the beam', () => {
@@ -166,7 +166,7 @@ test('opposing and perpendicular passes of a self-crossing route cannot capture 
 	assert.ok(reverseState.y <= 1e-9, 'a −x beam locks onto the returning pass');
 
 	// A beam flying straight at a +x route (perpendicular) receives nothing at all.
-	const perpendicular = { x: 30, y: -40, vx: 0, vy: 145 };
+	const perpendicular = { x: 30, y: -10, vx: 0, vy: 145 };
 	const perpendicularState = newGuide();
 	const force = sim.guidanceVector(perpendicular, line(3.625, 121), 1, null, perpendicularState, 4);
 	assert.equal(perpendicularState.segment, -1);
@@ -184,14 +184,14 @@ test('distance and heading falloffs gate guidance smoothly', () => {
 		const force = sim.guidanceVector({ x: 30, y: offset, vx: Math.cos(angle) * 145, vy: Math.sin(angle) * 145 }, route, 1, null, state, 8);
 		return Math.hypot(force.x, force.y);
 	};
-	const near20 = magnitude(20, 0);
-	assert.ok(near20 > 0);
-	assert.ok(magnitude(90, 0) < near20, 'the pull shrinks toward the reach');
-	near(magnitude(100, 0), 0);
-	assert.ok(magnitude(20, 60) < near20, 'heading mismatch fades the pull');
-	near(magnitude(20, 90), 0);
-	sim.guideDirection = 45;
-	near(magnitude(20, 45), 0);
+	const near10 = magnitude(10, 0);
+	assert.ok(near10 > 0);
+	assert.ok(magnitude(35, 0) < near10, 'the pull shrinks toward the reach');
+	near(magnitude(40, 0), 0);
+	assert.ok(magnitude(10, 20) < near10, 'heading mismatch fades the pull');
+	near(magnitude(10, 30), 0);
+	sim.guideDirection = 15;
+	near(magnitude(10, 15), 0);
 });
 
 test('the route is a committed plan held for the selected memory', () => {

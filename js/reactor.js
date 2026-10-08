@@ -20,7 +20,9 @@
 	// player's match tolerances. Detection must be looser than the pull, or chaos growing
 	// across the lap keeps tipping the closure over the gate and the rail is dropped.
 	const LOOP_DETECT_DISTANCE = 100;
+	const LOOP_DETECT_RADIUS2 = LOOP_DETECT_DISTANCE * LOOP_DETECT_DISTANCE;
 	const LOOP_DETECT_ANGLE = 45;
+	const LOOP_DETECT_COSINE = Math.cos(Math.min(Math.PI / 2, LOOP_DETECT_ANGLE * Math.PI / 180));
 	// The closure error is blended into this last fraction of the lap, so the committed
 	// rail is one closed curve. Without the stitch the seam (median ~50 px, wider than
 	// the pull tolerance) lets the beam cross the junction unguided every lap, and the
@@ -98,6 +100,7 @@
 			this.guideForce = { x: 0, y: 0 };
 			this.forecastForce = { x: 0, y: 0 };
 			this.loop = makeLoop();
+			this.railEntry = { x: 0, y: 0, vx: 0, vy: 0 };
 			this.anchor = { segment: -1, position: 0, distance: 0, angle: 0 };
 			this.foot = { x: 0, y: 0, vx: 0, vy: 0 };
 			this.aim = { x: 0, y: 0, vx: 0, vy: 0 };
@@ -121,6 +124,7 @@
 			this.guideVelocity = 0.35;
 			this.guidePeriod = 2;
 			this.forecastClock = 0;
+			this.forecastInterval = FORECAST_PERIOD;
 			this.stableTime = 0;
 			this.cooling = 0;
 			this.predictedCooling = 0;
@@ -153,6 +157,7 @@
 		this.loop.count = 0;
 		this.path = makePath();
 		this.proposalPath = makePath();
+		this.heldPath = makePath();
 		this.predict();
 		}
 
@@ -171,9 +176,6 @@
 		alternate.score = Infinity;
 		if (route.count < 2 || this.guideDistance <= 0 || this.guideDirection <= 0) return pair;
 		const reach = LOOP_DETECT_DISTANCE;
-		const reach2 = reach * reach;
-		const angleLimit = Math.min(Math.PI / 2, LOOP_DETECT_ANGLE * Math.PI / 180);
-		const minimumCosine = Math.cos(angleLimit);
 		const anchorX = this.particle.x, anchorY = this.particle.y;
 		let first = 1;
 		for (let i = 0; i < route.count; i++) {
@@ -185,18 +187,18 @@
 			const speed = Math.hypot(vx, vy);
 			if (speed < 1e-8) continue;
 			const beamX = x - anchorX, beamY = y - anchorY;
-			const atBeam = beamX * beamX + beamY * beamY < reach2;
+			const atBeam = beamX * beamX + beamY * beamY < LOOP_DETECT_RADIUS2;
 			for (let j = first; j < route.count; j++) {
 				const dx = route.x[j] - x;
 				if (dx >= reach || dx <= -reach) continue;
 				const dy = route.y[j] - y;
 				if (dy >= reach || dy <= -reach) continue;
 				const distance2 = dx * dx + dy * dy;
-				if (distance2 >= reach2) continue;
+				if (distance2 >= LOOP_DETECT_RADIUS2) continue;
 				const tvx = route.vx[j], tvy = route.vy[j];
 				const targetSpeed = Math.hypot(tvx, tvy);
 				if (targetSpeed < 1e-8) continue;
-				if ((vx * tvx + vy * tvy) / (speed * targetSpeed) < minimumCosine) continue;
+				if ((vx * tvx + vy * tvy) / (speed * targetSpeed) < LOOP_DETECT_COSINE) continue;
 				const speedX = tvx - vx, speedY = tvy - vy;
 				const score = distance2 + (speedX * speedX + speedY * speedY) * GUIDE_PHASE_TIME * GUIDE_PHASE_TIME;
 				if (atBeam) {
@@ -217,36 +219,40 @@
 		return pair;
 	}
 
-	commitLoop(route, pair) {
-		const loop = this.loop;
-		const count = pair.j - pair.i + 1;
-		for (let k = 0; k < count; k++) {
-			loop.x[k] = route.x[pair.i + k];
-			loop.y[k] = route.y[pair.i + k];
-			loop.vx[k] = route.vx[pair.i + k];
-			loop.vy[k] = route.vy[pair.i + k];
-		}
-		loop.count = count;
-		loop.start = route.t[pair.i];
-		loop.period = route.t[pair.j] - route.t[pair.i];
-		loop.step = loop.period / (count - 1);
-		// Stitch the seam: fade the closure error in so sample count - 1 lands exactly on
-		// sample 0 with matching velocity. The rail becomes a closed curve the guide can
-		// hold with pull tolerance alone.
+	// Stitch the seam: fade the closure error in so sample count - 1 lands exactly on
+	// sample 0 with matching velocity. The rail becomes a closed curve the guide can
+	// hold with pull tolerance alone.
+	stitchSeam(rail, count) {
 		const intervals = count - 1;
 		const blendStart = LOOP_STITCH_START > 0 ? Math.min(Math.max(1, Math.round(intervals * LOOP_STITCH_START)), intervals - 1) : 0;
-		const gapX = loop.x[0] - loop.x[intervals];
-		const gapY = loop.y[0] - loop.y[intervals];
-		const gapVX = loop.vx[0] - loop.vx[intervals];
-		const gapVY = loop.vy[0] - loop.vy[intervals];
+		const gapX = rail.x[0] - rail.x[intervals];
+		const gapY = rail.y[0] - rail.y[intervals];
+		const gapVX = rail.vx[0] - rail.vx[intervals];
+		const gapVY = rail.vy[0] - rail.vy[intervals];
 		for (let k = blendStart; k <= intervals; k++) {
 			const u = (k - blendStart) / (intervals - blendStart);
 			const f = LOOP_STITCH_START > 0 ? smoothstep(u) : u;
-			loop.x[k] += gapX * f;
-			loop.y[k] += gapY * f;
-			loop.vx[k] += gapVX * f;
-			loop.vy[k] += gapVY * f;
+			rail.x[k] += gapX * f;
+			rail.y[k] += gapY * f;
+			rail.vx[k] += gapVX * f;
+			rail.vy[k] += gapVY * f;
 		}
+	}
+
+	commitLoop(route, i, j) {
+		const loop = this.loop;
+		const count = j - i + 1;
+		for (let k = 0; k < count; k++) {
+			loop.x[k] = route.x[i + k];
+			loop.y[k] = route.y[i + k];
+			loop.vx[k] = route.vx[i + k];
+			loop.vy[k] = route.vy[i + k];
+		}
+		loop.count = count;
+		loop.start = route.t[i];
+		loop.period = route.t[j] - route.t[i];
+		loop.step = loop.period / (count - 1);
+		this.stitchSeam(loop, count);
 		loop.entryX = loop.x[0];
 		loop.entryY = loop.y[0];
 		loop.expire = this.time + LOOP_GRACE;
@@ -274,9 +280,8 @@
 		// section it is already close to and already moving along, so a crossing branch
 		// with the wrong direction can never capture it. Sections at the heading limit
 		// must be clearly nearer than a well-aligned one to win.
-		findLoopAnchor(p, out) {
-			const loop = this.loop;
-			const intervals = loop.count - 1;
+		findLoopAnchor(rail, p, out) {
+			const intervals = rail.count - 1;
 			out.segment = -1;
 			if (intervals < 1) return false;
 			const speed = Math.hypot(p.vx, p.vy);
@@ -287,16 +292,16 @@
 			for (let k = 0; k < intervals; k++) {
 				const a = k;
 				const b = k === intervals - 1 ? 0 : k + 1;
-				const dx = loop.x[b] - loop.x[a], dy = loop.y[b] - loop.y[a];
+				const dx = rail.x[b] - rail.x[a], dy = rail.y[b] - rail.y[a];
 				const length2 = dx * dx + dy * dy;
 				if (length2 < 1e-12) continue;
-				const u = clamp(((p.x - loop.x[a]) * dx + (p.y - loop.y[a]) * dy) / length2, 0, 1);
-				const rx = loop.x[a] + dx * u - p.x;
-				const ry = loop.y[a] + dy * u - p.y;
+				const u = clamp(((p.x - rail.x[a]) * dx + (p.y - rail.y[a]) * dy) / length2, 0, 1);
+				const rx = rail.x[a] + dx * u - p.x;
+				const ry = rail.y[a] + dy * u - p.y;
 				const distance2 = rx * rx + ry * ry;
 				if (distance2 >= best) continue;
-				const vx = loop.vx[a] + (loop.vx[b] - loop.vx[a]) * u;
-				const vy = loop.vy[a] + (loop.vy[b] - loop.vy[a]) * u;
+				const vx = rail.vx[a] + (rail.vx[b] - rail.vx[a]) * u;
+				const vy = rail.vy[a] + (rail.vy[b] - rail.vy[a]) * u;
 				const loopSpeed = Math.hypot(vx, vy);
 				if (loopSpeed < 1e-8) continue;
 				const cosine = (p.vx * vx + p.vy * vy) / (speed * loopSpeed);
@@ -328,7 +333,7 @@
 			if (debug) debug.valid = true;
 			if (debug) debug.period = loop.period;
 			if (guidance <= 0 || this.guideDistance <= 0 || this.guideDirection <= 0) return force;
-			const anchor = this.findLoopAnchor(p, this.anchor);
+			const anchor = this.findLoopAnchor(this.loop, p, this.anchor);
 			if (debug && anchor) { debug.distance = this.anchor.distance; debug.angle = this.anchor.angle; }
 			if (!anchor) return force;
 			if (debug) debug.engaged = this.anchor.distance < this.guideDistance;
@@ -391,14 +396,17 @@
 			}
 		}
 
-		forecastInto(next, guidance) {
+		// `from` forecasts an arbitrary state (the held rail's entry) instead of the live beam,
+		// and `samples` caps the horizon to the length actually needed.
+		forecastInto(next, guidance, from, samples) {
 			const p = this.scratch;
-			Object.assign(p, this.particle);
-			for (let i = 0; i < SAMPLES; i++) {
+			const count = samples || SAMPLES;
+			Object.assign(p, from || this.particle);
+			for (let i = 0; i < count; i++) {
 				next.x[i] = p.x; next.y[i] = p.y;
 				next.vx[i] = p.vx; next.vy[i] = p.vy;
 				next.t[i] = this.time + i * FORECAST_DT;
-				if (i === SAMPLES - 1) { next.forceX[i] = 0; next.forceY[i] = 0; break; }
+				if (i === count - 1) { next.forceX[i] = 0; next.forceY[i] = 0; break; }
 				for (let sub = 0; sub < 3; sub++) {
 					const forceOut = sub === 0 ? this.forecastForce : null;
 					this.integrate(p, DT, guidance, forceOut, null);
@@ -407,26 +415,54 @@
 					next.forceY[i] = forceOut.y;
 				}
 			}
-			next.count = SAMPLES;
+			next.count = count;
+		}
+
+		// Transport the held lap through an edited field: propagate the rail's own entry state
+		// for one period and keep the result when the beam can still ride it. Re-deriving from
+		// the beam's live state instead searched a forecast the guide has already pulled off the
+		// unguided trajectory, so it latched onto a different lap family and threw the beam off
+		// the rail — a sub-pixel magnet nudge used to reshape the whole orbit.
+		retainLoop() {
+			const loop = this.loop;
+			const intervals = loop.count - 1;
+			if (intervals < 2) return false;
+			const entry = this.railEntry;
+			entry.x = loop.x[0]; entry.y = loop.y[0];
+			entry.vx = loop.vx[0]; entry.vy = loop.vy[0];
+			const held = this.heldPath;
+			this.forecastInto(held, 0, entry, intervals + 1);
+			this.stitchSeam(held, held.count);
+			// Validity is the pull's own tolerance test on the stitched rail, not the lap's
+			// seam: what matters is that the beam still meets the transported rail inside its
+			// tolerances. An edit that moves the orbit out from under the beam fails here, and
+			// the search re-derives from the beam's own next lap instead.
+			if (!this.findLoopAnchor(held, this.particle, this.anchor)) return false;
+			if (this.anchor.distance >= this.guideDistance) return false;
+			this.commitLoop(held, 0, intervals);
+			return true;
 		}
 
 		// Commit hysteresis. While the beam is on the rail the shape is frozen — only
 		// the grace timer is refreshed — so a better-scoring loop family elsewhere cannot
 		// hijack the ride. Re-fitting happens once the beam has stayed off the rail past
 		// grace, when nothing is held yet, or immediately when `force` is set (a player
-		// field edit), which re-derives the rail from the changed field even mid-ride.
+		// field edit), which follows the changed field even mid-ride.
 		commitDecision(force) {
 			const loop = this.loop;
 			const pair = this.pair, alternate = this.alternatePair;
 			if (loop.count > 1) {
-				const riding = this.findLoopAnchor(this.particle, this.anchor) && this.anchor.distance < this.guideDistance;
+				const riding = this.findLoopAnchor(this.loop, this.particle, this.anchor) && this.anchor.distance < this.guideDistance;
 				if (riding && !force) {
 					loop.expire = this.time + LOOP_GRACE;
 					return;
 				}
+				// A field edit keeps the held lap when the beam can still ride its transported
+				// version, so the rail follows the edit instead of being re-fitted from scratch.
+				if (force && this.retainLoop()) return;
 				if (!force && this.time <= loop.expire) return;
 				if (pair.found) {
-					this.commitLoop(this.proposalPath, pair);
+					this.commitLoop(this.proposalPath, pair.i, pair.j);
 					return;
 				}
 				if (riding) {
@@ -436,18 +472,18 @@
 					return;
 				}
 				if (alternate.found && this.proposalPath.t[alternate.i] - this.time < LOOP_CAPTURE_WINDOW) {
-					this.commitLoop(this.proposalPath, alternate);
+					this.commitLoop(this.proposalPath, alternate.i, alternate.j);
 					return;
 				}
 				loop.count = 0;
 				return;
 			}
 			if (pair.found) {
-				this.commitLoop(this.proposalPath, pair);
+				this.commitLoop(this.proposalPath, pair.i, pair.j);
 				return;
 			}
 			if (alternate.found && this.proposalPath.t[alternate.i] - this.time < LOOP_CAPTURE_WINDOW) {
-				this.commitLoop(this.proposalPath, alternate);
+				this.commitLoop(this.proposalPath, alternate.i, alternate.j);
 			}
 		}
 
@@ -506,13 +542,13 @@
 			this.trailHead = (this.trailHead + 1) % this.trailX.length;
 			this.trailCount = Math.min(this.trailCount + 1, this.trailX.length);
 			this.forecastClock += DT;
-			if (this.forecastClock < FORECAST_PERIOD) return;
-			this.forecastClock -= FORECAST_PERIOD;
+			if (this.forecastClock < this.forecastInterval) return;
+			this.forecastClock -= this.forecastInterval;
 			this.predict();
 		}
 	}
 
-	const api = { Reactor, DT, TAU, circleFraction, reflect };
+	const api = { Reactor, DT, TAU, FORECAST_PERIOD, circleFraction, reflect };
 	if (typeof module !== 'undefined' && module.exports) module.exports = api;
 	root.ReactorCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

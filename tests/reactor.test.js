@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { Reactor, DT, TAU, circleFraction, reflect } = require('../js/reactor.js');
+const { Reactor, DT, TAU, FORECAST_PERIOD, circleFraction, reflect } = require('../js/reactor.js');
 const near = (a, b, tolerance = 1e-9) => assert.ok(Math.abs(a - b) < tolerance, `${a} ≠ ${b}`);
 const FORECAST_TOLERANCE = 0.02;
 
@@ -153,7 +153,7 @@ test('loop detection ignores recurrences shorter than the minimum lap period', (
 
 test('the committed loop is stitched into one closed rail', () => {
 	const sim = new Reactor();
-	sim.commitLoop(returnRoute(9, 12), { i: 0, j: 4 });
+	sim.commitLoop(returnRoute(9, 12), 0, 4);
 	const loop = sim.loop;
 	assert.equal(loop.count, 5);
 	near(loop.x[loop.count - 1], loop.x[0]);
@@ -164,6 +164,72 @@ test('the committed loop is stitched into one closed rail', () => {
 	const a = sim.loopStateAt(0, { x: 0, y: 0, vx: 0, vy: 0 });
 	const b = sim.loopStateAt(intervals - 1e-9, { x: 0, y: 0, vx: 0, vy: 0 });
 	assert.ok(Math.hypot(a.x - b.x, a.y - b.y) < 0.01, 'the rail wraps around without a seam');
+});
+
+test('re-deriving the rail without a field change reproduces it exactly', () => {
+	const sim = new Reactor();
+	for (let i = 0; i < 120 * 12; i++) sim.step();
+	const before = { x: Float64Array.from(sim.loop.x.subarray(0, sim.loop.count)), vy: Float64Array.from(sim.loop.vy.subarray(0, sim.loop.count)) };
+	sim.predict(true);
+	assert.equal(sim.loop.count, before.x.length);
+	for (let k = 0; k < sim.loop.count; k++) {
+		near(sim.loop.x[k], before.x[k]);
+		near(sim.loop.vy[k], before.vy[k]);
+	}
+});
+
+test('a small field edit transports the held rail instead of re-fitting it', () => {
+	const sim = new Reactor();
+	for (let i = 0; i < 120 * 12; i++) sim.step();
+	const before = {
+		period: sim.loop.period,
+		x: Float64Array.from(sim.loop.x.subarray(0, sim.loop.count)),
+		y: Float64Array.from(sim.loop.y.subarray(0, sim.loop.count))
+	};
+	sim.magnets[0].x += 2;
+	sim.predict(true);
+	const shared = Math.min(sim.loop.count, before.x.length);
+	let worst = 0;
+	for (let k = 0; k < shared; k++) {
+		worst = Math.max(worst, Math.hypot(sim.loop.x[k] - before.x[k], sim.loop.y[k] - before.y[k]));
+	}
+	assert.ok(worst < 12, `the rail follows the edit, worst sample moved ${worst.toFixed(1)} px`);
+	assert.ok(Math.abs(sim.loop.period - before.period) < 0.25, 'the lap period barely moves');
+	assert.ok(sim.liveDebug.engaged, 'the beam still rides the transported rail');
+});
+
+test('a sub-pixel field edit does not reshape the locked trajectory', () => {
+	const editAt = 12, horizon = 10;
+	const base = new Reactor(), edited = new Reactor();
+	const trail = [], editedTrail = [];
+	for (let i = 0; i < 120 * (editAt + horizon); i++) {
+		base.step();
+		trail.push(base.particle.x, base.particle.y);
+	}
+	for (let i = 0; i < 120 * (editAt + horizon); i++) {
+		if (i === 120 * editAt) { edited.magnets[0].x += 2; edited.predict(true); }
+		edited.step();
+		editedTrail.push(edited.particle.x, edited.particle.y);
+	}
+	let worst = 0;
+	for (let i = 120 * editAt; i < 120 * (editAt + horizon); i++) {
+		worst = Math.max(worst, Math.hypot(trail[2 * i] - editedTrail[2 * i], trail[2 * i + 1] - editedTrail[2 * i + 1]));
+	}
+	assert.ok(worst < 30, `the beam keeps its orbit, worst drift ${worst.toFixed(1)} px`);
+});
+
+test('an edit that breaks the lap lets the search re-derive the rail', () => {
+	const sim = new Reactor();
+	for (let i = 0; i < 120 * 12; i++) sim.step();
+	const period = sim.loop.period;
+	sim.magnets[1].x = 350; sim.magnets[1].y = -260;
+	sim.magnets[2].y = -260;
+	sim.predict(true);
+	for (let i = 0; i < 120 * 10; i++) {
+		sim.step();
+		assert.ok(Number.isFinite(sim.particle.x) && Number.isFinite(sim.particle.vx));
+	}
+	assert.notEqual(sim.loop.period, period, 'the broken lap is replaced');
 });
 
 test('guidance is idle without a committed loop and pulls a nearby aligned beam onto the rail', () => {
@@ -250,6 +316,19 @@ test('forecast refresh keeps the display forecast rooted at the live state', () 
 		sim.step();
 		assert.ok(Math.abs(sim.path.t[0] - sim.time) < 1, 'refresh never displays a stale start');
 	}
+});
+
+test('the forecast refresh interval stretches with the fast-forward speed', () => {
+	const sim = new Reactor();
+	let refreshes = 0;
+	const predict = sim.predict.bind(sim);
+	sim.predict = () => { refreshes++; predict(); };
+	for (let i = 0; i < 120 * 30; i++) sim.step();
+	const base = refreshes;
+	refreshes = 0;
+	sim.forecastInterval = FORECAST_PERIOD * 10;
+	for (let i = 0; i < 120 * 30; i++) sim.step();
+	assert.ok(refreshes > 0 && refreshes < base / 5, `30 s of sim refreshed ${base} times at 1x and ${refreshes} times at 10x`);
 });
 
 test('long runs remain finite and bounded across guide settings', () => {

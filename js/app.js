@@ -1,6 +1,6 @@
 (function () {
 	'use strict';
-	const { Reactor, DT, TAU } = ReactorCore;
+	const { Reactor, DT, TAU, FORECAST_PERIOD } = ReactorCore;
 	// The debug overlay shows the committed loop rail and all three vectors used to judge it:
 	// rail movement at the aim point, current movement, and the resulting matching force.
 	const GUIDE_ARROW_MINIMUM = 0.25;
@@ -18,9 +18,10 @@
 		guideVelocity: $('guide-velocity'), guideVelocityValue: $('guide-velocity-value'),
 		guidePeriod: $('guide-period'), guidePeriodValue: $('guide-period-value'), guideReadout: $('guide-readout'),
 		debugGuidance: $('debug-guidance'), pause: $('pause'), step: $('step'),
+		speed: $('speed'), speedValue: $('speed-value'),
 		clock: $('clock'), status: $('status'), light: $('status-light'), stability: $('stability'), cooling: $('cooling-value')
 	};
-	let selected = 0, paused = false, accumulator = 0, last = 0, lastUI = 0;
+	let selected = 0, paused = false, speed = 1, accumulator = 0, last = 0, lastUI = 0;
 	let scale = 1, width = 800, height = 650, pixelRatio = 1;
 	const pointer = { x: 0, y: 0 };
 	const drag = { mode: '', target: -1, offsetX: 0, offsetY: 0, lastAngle: 0 };
@@ -85,6 +86,14 @@
 		ui.guideReadout.classList.toggle('visible', ui.debugGuidance.checked);
 		updateGuideReadout();
 	});
+	function setSpeed(value) {
+		speed = value;
+		ui.speedValue.textContent = speed + '×';
+		// The forecast is a real-time refresh, so its sim-time interval grows with the speed:
+		// fast-forward then costs the same per second instead of queueing a full pass per step.
+		sim.forecastInterval = FORECAST_PERIOD * speed;
+	}
+	ui.speed.addEventListener('input', () => setSpeed(Number(ui.speed.value)));
 	function togglePause() {
 		paused = !paused;
 		accumulator = 0;
@@ -102,6 +111,8 @@
 		ui.guideVelocity.value = sim.guideVelocity;
 		ui.guidePeriod.value = sim.guidePeriod;
 		ui.debugGuidance.checked = false;
+		ui.speed.value = 1;
+		setSpeed(1);
 		$('guide-legend').classList.remove('visible');
 		ui.guideReadout.classList.remove('visible');
 		syncControls(); updateUI();
@@ -369,7 +380,7 @@
 	function frame(now) {
 		const elapsed = last ? Math.min((now - last) / 1000, 0.1) : 0;
 		last = now;
-		if (!paused) accumulator += elapsed;
+		if (!paused) accumulator += elapsed * speed;
 		while (accumulator >= DT) { sim.step(); accumulator -= DT; }
 		if (now - lastUI > 100) { updateUI(); lastUI = now; }
 		draw(); requestAnimationFrame(frame);

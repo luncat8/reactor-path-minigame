@@ -111,4 +111,15 @@ const railAfter = Number(readout.match(/loop ([\d.]+) s/)[1]);
 assert.ok(Math.abs(railAfter - railBefore.period) < 0.25, `a 2° edit keeps the lap (${railBefore.period} → ${railAfter} s)`);
 assert.ok(readout.includes('riding'), 'the beam still rides the transported rail');
 
-console.log('ui wiring: speed slider, pause/step, reset, and edit continuity all behave');
+// The auto-fuel row wires the checkbox and the number input; the last add press sets the number.
+byId('auto-fuel-count').value = '2';
+byId('auto-fuel-count').dispatch('input');
+byId('auto-fuel').checked = true;
+byId('auto-fuel').dispatch('change');
+byId('add-fuel').dispatch('click');
+assert.equal(byId('auto-fuel-count').value, '4', 'the last add press sets the auto number');
+byId('reset').dispatch('click');
+assert.equal(byId('auto-fuel').checked, false, 'reset turns auto off');
+assert.equal(byId('auto-fuel-count').value, '3', 'reset restores the default number');
+
+console.log('ui wiring: speed slider, pause/step, reset, edit continuity, and auto fuel all behave');

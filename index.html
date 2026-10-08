@@ -25,7 +25,11 @@
 						<button id="add-fuel" class="wide">+ Fuel <span id="fuel-count"></span></button>
 						<button id="add-cooler" class="wide">+ Cooler <span id="cooler-count"></span></button>
 					</div>
-					<p class="micro">Fuel circles heat the reactor and burn out while the beam crosses them. Cooler circles remove heat; the heat removed is the output. Keep output equal to the drifting target to score. Click a low-fuel circle (dashed) or any cooler to remove it. New circles appear at random open spots.</p>
+					<div class="auto-row">
+						<label class="check-row" for="auto-fuel"><input id="auto-fuel" type="checkbox"> Auto fuel</label>
+						<label class="auto-count" for="auto-fuel-count">keep <input id="auto-fuel-count" type="number" min="0" max="4" step="1" value="3"> circles</label>
+					</div>
+					<p class="micro">Fuel circles heat the reactor and burn out while the beam crosses them. Cooler circles remove heat; the heat removed is the output. Keep output equal to the drifting target to score. Click a low-fuel circle (dashed) or any cooler to remove it. New circles appear at random open spots. Auto fuel clears burned-out circles and keeps the fuel count at the number shown — the count from the last + Fuel press, or 3 by default. Past a full heat buffer the fuel cones lift: the circles shrink as heat rises from 100% to 120% and stop feeding the reactor until it cools.</p>
 				</section>
 				<section class="card guide-card">
 					<div class="panel-heading"><span>03 / TRAJECTORY GUIDANCE</span></div>

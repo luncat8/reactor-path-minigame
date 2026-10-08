@@ -103,6 +103,9 @@
 	const FUEL_HEAT = 30;
 	const COOLER_REMOVAL = 30;
 	const HEAT_MAX = 100;
+	// Past a full buffer the fuel cones lift: their size shrinks linearly to zero at the
+	// overheat ceiling, so a hot reactor absorbs less fuel heat until it cools.
+	const HEAT_OVERHEAT = 120;
 	const START_HEAT = 30;
 	// Output is the heat removed per second, smoothed so one crossing does not spike the readout.
 	const OUTPUT_TIME = 3;
@@ -121,10 +124,17 @@
 	const FUEL_SEEDS = [{ x: -215, y: -80 }, { x: 20, y: -175 }, { x: 210, y: 65 }];
 	const COOLER_SEEDS = [{ x: -85, y: 80 }, { x: 105, y: -55 }];
 
-	function removeCircle(list, x, y, removable) {
+	// Cone lift: full size up to a full heat buffer, then a linear shrink to zero at the
+	// overheat ceiling. The shrunk size is the circle's gameplay size, not just its look.
+	function fuelSizeFactor(heat) {
+		return clamp((HEAT_OVERHEAT - heat) / (HEAT_OVERHEAT - HEAT_MAX), 0, 1);
+	}
+
+	function removeCircle(list, x, y, removable, radiusOf) {
 		for (let i = 0; i < list.length; i++) {
 			const c = list[i];
-			if (removable(c) && Math.hypot(x - c.x, y - c.y) <= c.radius) {
+			const radius = radiusOf ? radiusOf(c) : c.radius;
+			if (removable(c) && Math.hypot(x - c.x, y - c.y) <= radius) {
 				list.splice(i, 1);
 				return true;
 			}
@@ -167,8 +177,15 @@
 			kind.list.push({ x, y, radius: kind.radius, fuel: 1, name: prefix + kind.serial });
 		}
 
+		// The fuel cone's live size: full while the buffer is below full, shrinking to zero
+		// at the overheat ceiling. Beam dwell, clicking, and drawing all use this size.
+		fuelRadius(f) {
+			return f.radius * fuelSizeFactor(this.heat);
+		}
+
 		removeAt(x, y) {
-			return removeCircle(this.fuel, x, y, c => c.fuel <= FUEL_LOW) || removeCircle(this.coolers, x, y, () => true);
+			return removeCircle(this.fuel, x, y, c => c.fuel <= FUEL_LOW, c => this.fuelRadius(c)) ||
+				removeCircle(this.coolers, x, y, () => true);
 		}
 
 		matching() {
@@ -178,9 +195,9 @@
 		// Advances the plant by one simulation step of the beam segment a→b.
 		advance(ax, ay, bx, by, dt) {
 			for (const f of this.fuel) {
-				const dwell = circleFraction(ax, ay, bx, by, f.x, f.y, f.radius) * dt;
+				const dwell = circleFraction(ax, ay, bx, by, f.x, f.y, this.fuelRadius(f)) * dt;
 				f.fuel = Math.max(0, f.fuel - FUEL_BURN * dwell);
-				if (f.fuel > 0) this.heat = Math.min(HEAT_MAX, this.heat + FUEL_HEAT * dwell);
+				if (f.fuel > 0) this.heat = Math.min(HEAT_OVERHEAT, this.heat + FUEL_HEAT * dwell);
 			}
 			let removed = 0;
 			for (const c of this.coolers) {
@@ -271,6 +288,10 @@
 				{ x: 160, y: 110, angle: -0.5, length: 105, name: 'R2' }
 			];
 			this.plant.reset();
+			// Auto fuel is a player aid, off by default; the top-up number starts at the
+			// initial fuel count and follows the last add-fuel press.
+			this.autoFuel = false;
+			this.autoFuelTarget = FUEL_SEEDS.length;
 			Object.assign(this.particle, { x: -230, y: 0, vx: 0, vy: -151 });
 		this.liveForce.x = 0;
 		this.liveForce.y = 0;
@@ -639,6 +660,19 @@
 			return true;
 		}
 
+		// Auto fuel policy: clear burned-out circles, then top the fuel count up to the
+		// player's number (the count from the last add-fuel press, or the default).
+		maintainFuel() {
+			const plant = this.plant;
+			for (let i = plant.fuel.length - 1; i >= 0; i--) {
+				if (plant.fuel[i].fuel <= 0) plant.fuel.splice(i, 1);
+			}
+			const target = clamp(Math.round(this.autoFuelTarget), 0, plant.kinds.F.max);
+			while (plant.fuel.length < target) {
+				if (!this.addCircle('F')) break;
+			}
+		}
+
 		predict(force) {
 			// Two reusable passes with different jobs. The first pass is unguided: it shows what
 			// the field alone would do, and its best near-recurrence is the loop the field almost
@@ -661,6 +695,7 @@
 			const force = this.guidanceVector(p, this.guideStrength, this.liveDebug);
 			this.liveForce.x = force.x; this.liveForce.y = force.y;
 			this.plant.advance(ax, ay, p.x, p.y, DT);
+			if (this.autoFuel) this.maintainFuel();
 			this.trailX[this.trailHead] = p.x;
 			this.trailY[this.trailHead] = p.y;
 			this.trailHead = (this.trailHead + 1) % this.trailX.length;
@@ -672,7 +707,7 @@
 		}
 	}
 
-	const api = { Reactor, DT, TAU, FORECAST_PERIOD, circleFraction, reflect, FUEL_LOW, HEAT_MAX, TARGET_MIN, TARGET_MAX, MAX_FUEL, MAX_COOLERS };
+	const api = { Reactor, DT, TAU, FORECAST_PERIOD, circleFraction, reflect, FUEL_LOW, HEAT_MAX, HEAT_OVERHEAT, fuelSizeFactor, TARGET_MIN, TARGET_MAX, MAX_FUEL, MAX_COOLERS };
 	if (typeof module !== 'undefined' && module.exports) module.exports = api;
 	root.ReactorCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

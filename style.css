@@ -57,6 +57,10 @@ input[type=range] { width: 100%; accent-color: var(--cyan); margin: 12px 0 19px;
 .meter-track { height: 5px; margin-top: 9px; background: #263236; position: relative; }.meter-track::after { content: ''; position: absolute; left: 50%; top: -3px; height: 11px; width: 1px; background: #8ba7a6; }.meter-track.plain::after { display: none; }.meter-fill { height: 100%; width: 0; background: var(--cyan); }.meter-fill.heat { background: #edbb70; }
 .target-marker { position: absolute; top: -4px; height: 13px; width: 2px; margin-left: -1px; background: #f3f1e6; }
 .button-row { display: flex; gap: 8px; margin-top: 18px; }.button-row button { flex: 1; font-size: 11px; padding: 8px 6px; }.button-row span { font-family: monospace; color: var(--cyan); }
+.auto-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; }
+.auto-count { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #a4b7b9; cursor: pointer; }
+.auto-count input { width: 44px; padding: 5px 2px; text-align: center; font: 11px monospace; color: var(--cyan); background: #1a272c; border: 1px solid #35474b; border-radius: 4px; }
+.meter-fill.heat.overheat { background: #e06b5a; }.meter-label b.overheat { color: #e06b5a; }
 .cooling-row { border-top: 1px solid var(--line); margin-top: 22px; padding-top: 15px; display: flex; justify-content: space-between; font-size: 11px; color: #a4b7b9; }.cooling-row strong { font: 12px monospace; color: #edbb70; }
 .guide-card .panel-heading { margin-bottom: 17px; }.guide-card input { margin-bottom: 5px; }.guide-card .check-row input { margin: 0; }footer { display: flex; justify-content: space-between; gap: 25px; padding: 24px 0; font-size: 10px; line-height: 1.7; color: #738b8f; }footer b { color: #a2b6b7; font: 9px monospace; margin-right: 12px; }footer > span:last-child { font: 9px monospace; text-align: right; }
 @media (min-width: 1400px) { canvas { max-height: 760px; } }

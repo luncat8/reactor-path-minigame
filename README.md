@@ -49,10 +49,11 @@ The white arrow is hidden below magnitude 0.25 to avoid enlarging numerical dust
 
 ## Reactor plant
 
-- **Fuel circles** (amber, F1…): each beam crossing adds reactor heat and burns fuel. The bar under a circle is its remaining fuel. Once fuel drops to 25% the circle is dashed: click it to remove it. Up to 4 fuel circles.
+- **Fuel circles** (amber, F1…): each beam crossing adds reactor heat and burns fuel. The bar under a circle is its remaining fuel. Once fuel drops to 25% the circle is dashed: click it to remove it. Up to 4 fuel circles. Past a full heat buffer the fuel cones lift: the circles shrink linearly as heat rises from 100% to 120% and vanish at the ceiling, so an overheating reactor absorbs less fuel heat until it cools. The heat bar turns red past 100%.
 - **Cooler circles** (hatched, C1…): each beam crossing removes reactor heat. Only heat actually removed counts as **output heat**, shown as a rate in %/s. Click a cooler to remove it. Up to 4 coolers.
 - **Add fuel** / **Add cooler** place a new circle at a random open spot that does not overlap circles, magnets, or reflectors.
-- **Score** accumulates while the output rate matches the **target** (white marker on the output bar). The target drifts slowly toward random goals between 2 and 8 %/s. Heat is capped at 100%, so output above the fuel supply drains the buffer and cannot last.
+- **Auto fuel** clears burned-out circles and keeps the fuel count at the number in the input — the count from the last **+ Fuel** press, or the initial 3. The number never exceeds the fuel maximum.
+- **Score** accumulates while the output rate matches the **target** (white marker on the output bar). The target drifts slowly toward random goals between 2 and 8 %/s. Heat is capped at 120% (overheat); past 100% the lifted cones throttle the fuel supply, so an overheating reactor starves itself until it cools.
 
 ## Read the chamber
 

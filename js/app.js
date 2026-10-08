@@ -1,6 +1,6 @@
 (function () {
 	'use strict';
-	const { Reactor, DT, TAU, FORECAST_PERIOD, FUEL_LOW, HEAT_MAX, TARGET_MAX } = ReactorCore;
+	const { Reactor, DT, TAU, FORECAST_PERIOD, FUEL_LOW, HEAT_MAX, TARGET_MAX, MAX_FUEL } = ReactorCore;
 	// The debug overlay shows the committed loop rail and all three vectors used to judge it:
 	// rail movement at the aim point, current movement, and the resulting matching force.
 	const GUIDE_ARROW_MINIMUM = 0.25;
@@ -24,7 +24,8 @@
 		clock: $('clock'), status: $('status'),
 		heatFill: $('heat-fill'), heatValue: $('heat-value'), outputFill: $('output-fill'), outputValue: $('output-value'),
 		targetMarker: $('target-marker'), targetValue: $('target-value'), score: $('score-value'), match: $('match-value'),
-		addFuel: $('add-fuel'), addCooler: $('add-cooler'), fuelCount: $('fuel-count'), coolerCount: $('cooler-count')
+		addFuel: $('add-fuel'), addCooler: $('add-cooler'), fuelCount: $('fuel-count'), coolerCount: $('cooler-count'),
+		autoFuel: $('auto-fuel'), autoFuelCount: $('auto-fuel-count')
 	};
 	let selected = 0, paused = false, speed = 1, accumulator = 0, last = 0, lastUI = 0;
 	let scale = 1, width = 800, height = 650, pixelRatio = 1;
@@ -40,8 +41,21 @@
 		$('instruments').append(button);
 		buttons.push(button);
 	}
-	ui.addFuel.addEventListener('click', () => { sim.addCircle('F'); updateUI(); });
+	// Auto fuel keeps the reactor fed: burned-out circles clear and the count tops up to the
+	// player's number. The last + Fuel press sets that number; the input edits it directly.
+	function autoFuelTarget() {
+		return Math.max(0, Math.min(MAX_FUEL, Math.round(Number(ui.autoFuelCount.value) || 0)));
+	}
+	ui.autoFuelCount.max = MAX_FUEL;
+	ui.addFuel.addEventListener('click', () => {
+		sim.addCircle('F');
+		ui.autoFuelCount.value = String(sim.plant.fuel.length);
+		sim.autoFuelTarget = autoFuelTarget();
+		updateUI();
+	});
 	ui.addCooler.addEventListener('click', () => { sim.addCircle('C'); updateUI(); });
+	ui.autoFuel.addEventListener('change', () => { sim.autoFuel = ui.autoFuel.checked; sim.autoFuelTarget = autoFuelTarget(); updateUI(); });
+	ui.autoFuelCount.addEventListener('input', () => { sim.autoFuelTarget = autoFuelTarget(); });
 
 	function syncControls() {
 		const item = instrument();
@@ -109,6 +123,8 @@
 		ui.guideVelocity.value = sim.guideVelocity;
 		ui.guidePeriod.value = sim.guidePeriod;
 		ui.debugGuidance.checked = false;
+		ui.autoFuel.checked = false;
+		ui.autoFuelCount.value = String(sim.autoFuelTarget);
 		ui.speed.value = 1;
 		setSpeed(1);
 		$('guide-legend').classList.remove('visible');
@@ -290,19 +306,22 @@
 		ctx.font = '11px monospace'; ctx.fillText(c.name, c.x, c.y - c.radius - 6);
 	}
 	// Fuel shows its remaining fuel as a bar; a dashed ring marks a circle that may be removed.
+	// The cone size is the gameplay size: it shrinks as the reactor overheats past full.
 	function drawFuel(fuel) {
 		const f = fuel;
+		const radius = sim.plant.fuelRadius(f);
+		if (radius <= 0) return;
 		const removable = f.fuel <= FUEL_LOW;
-		ctx.lineWidth = 1; circle(f.x, f.y, f.radius); ctx.fillStyle = '#f3bd7212'; ctx.fill();
+		ctx.lineWidth = 1; circle(f.x, f.y, radius); ctx.fillStyle = '#f3bd7212'; ctx.fill();
 		ctx.strokeStyle = removable ? '#f3bd72' : '#f3bd727a';
 		if (removable) ctx.setLineDash([4, 3]);
 		ctx.stroke(); ctx.setLineDash([]);
 		circle(f.x, f.y, 4); ctx.fillStyle = '#f3bd72'; ctx.fill();
-		ctx.font = '11px monospace'; ctx.textAlign = 'center'; ctx.fillText(f.name, f.x, f.y - f.radius - 6);
-		ctx.fillStyle = '#263a3d'; ctx.fillRect(f.x - 32, f.y + f.radius + 9, 64, 4);
-		ctx.fillStyle = removable ? '#edbb70' : '#f3bd72'; ctx.fillRect(f.x - 32, f.y + f.radius + 9, 64 * f.fuel, 4);
+		ctx.font = '11px monospace'; ctx.textAlign = 'center'; ctx.fillText(f.name, f.x, f.y - radius - 6);
+		ctx.fillStyle = '#263a3d'; ctx.fillRect(f.x - 32, f.y + radius + 9, 64, 4);
+		ctx.fillStyle = removable ? '#edbb70' : '#f3bd72'; ctx.fillRect(f.x - 32, f.y + radius + 9, 64 * f.fuel, 4);
 		if (!removable) return;
-		ctx.font = '10px monospace'; ctx.fillStyle = '#f3bd72'; ctx.fillText('click to remove', f.x, f.y + f.radius + 28);
+		ctx.font = '10px monospace'; ctx.fillStyle = '#f3bd72'; ctx.fillText('click to remove', f.x, f.y + radius + 28);
 	}
 	function draw() {
 		ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
@@ -370,8 +389,13 @@
 	function updateReactorUI() {
 		const plant = sim.plant;
 		const matching = plant.matching();
-		ui.heatFill.style.width = (100 * plant.heat / HEAT_MAX) + '%';
+		// Past a full buffer the cones lift and the reactor may overheat toward the ceiling;
+		// the bar caps at full and turns red while the number keeps counting past 100%.
+		const overheat = plant.heat > HEAT_MAX;
+		ui.heatFill.style.width = Math.min(100, 100 * plant.heat / HEAT_MAX) + '%';
+		ui.heatFill.classList.toggle('overheat', overheat);
 		ui.heatValue.textContent = Math.round(100 * plant.heat / HEAT_MAX) + '%';
+		ui.heatValue.classList.toggle('overheat', overheat);
 		ui.outputFill.style.width = Math.min(100, 100 * plant.outputRate / OUTPUT_BAR_MAX) + '%';
 		ui.outputValue.textContent = plant.outputRate.toFixed(1) + ' %/s';
 		ui.targetMarker.style.left = Math.min(100, 100 * plant.target / OUTPUT_BAR_MAX) + '%';

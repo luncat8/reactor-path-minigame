@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { Reactor, DT, TAU, FORECAST_PERIOD, circleFraction, reflect, FUEL_LOW, HEAT_MAX, TARGET_MIN, TARGET_MAX, MAX_FUEL, MAX_COOLERS } = require('../js/reactor.js');
+const { Reactor, DT, TAU, FORECAST_PERIOD, circleFraction, reflect, FUEL_LOW, HEAT_MAX, HEAT_OVERHEAT, fuelSizeFactor, TARGET_MIN, TARGET_MAX, MAX_FUEL, MAX_COOLERS } = require('../js/reactor.js');
 const near = (a, b, tolerance = 1e-9) => assert.ok(Math.abs(a - b) < tolerance, `${a} ≠ ${b}`);
 const FORECAST_TOLERANCE = 0.02;
 
@@ -404,12 +404,12 @@ test('cooler circles remove heat, and only the removed heat counts as output', (
 	assert.ok(plant.outputRate < output, 'with no heat left, cooling produces no output');
 });
 
-test('reactor heat stays within its scale', () => {
+test('reactor heat stays within its scale, up to the overheat ceiling', () => {
 	const sim = new Reactor(), plant = emptyPlant(sim);
 	plant.add('F', 0, 0); plant.add('F', 5, 0);
 	beamAcross(plant, 30, plant.fuel[0], 0);
-	assert.ok(plant.heat <= HEAT_MAX && plant.heat >= 0);
-	near(plant.heat, HEAT_MAX);
+	assert.ok(plant.heat <= HEAT_OVERHEAT && plant.heat >= 0);
+	near(plant.heat, HEAT_OVERHEAT);
 });
 
 test('removal: low fuel circles and coolers can be clicked away, healthy fuel cannot', () => {
@@ -423,6 +423,70 @@ test('removal: low fuel circles and coolers can be clicked away, healthy fuel ca
 	assert.equal(plant.removeAt(-200, 0), true, 'a cooler is removed on click');
 	assert.equal(plant.coolers.length, 0);
 	assert.equal(plant.removeAt(400, 400), false, 'clicks away from circles do nothing');
+});
+
+test('fuel cones lift as heat rises past a full buffer and clear at the ceiling', () => {
+	const sim = new Reactor(), plant = emptyPlant(sim);
+	plant.add('F', 0, 0);
+	const fuel = plant.fuel[0];
+	near(fuelSizeFactor(0), 1);
+	near(fuelSizeFactor(HEAT_MAX), 1, 1e-9, 'still full size at exactly full');
+	near(fuelSizeFactor(HEAT_MAX + (HEAT_OVERHEAT - HEAT_MAX) / 2), 0.5);
+	near(fuelSizeFactor(HEAT_OVERHEAT), 0);
+	near(fuelSizeFactor(HEAT_OVERHEAT + 30), 0);
+	plant.heat = 0; near(plant.fuelRadius(fuel), fuel.radius);
+	plant.heat = HEAT_MAX; near(plant.fuelRadius(fuel), fuel.radius);
+	plant.heat = 110; near(plant.fuelRadius(fuel), fuel.radius / 2);
+	plant.heat = HEAT_OVERHEAT; near(plant.fuelRadius(fuel), 0);
+});
+
+test('heat may overheat past a full buffer, and lifted cones stop feeding it', () => {
+	const sim = new Reactor(), plant = emptyPlant(sim);
+	plant.add('F', 0, 0);
+	plant.heat = HEAT_MAX;
+	plant.advance(-10, 0, 10, 0, DT);
+	assert.ok(plant.heat > HEAT_MAX, 'partly lifted cones still heat past full');
+	assert.ok(plant.heat <= HEAT_OVERHEAT);
+	plant.heat = HEAT_OVERHEAT;
+	plant.advance(-10, 0, 10, 0, DT);
+	near(plant.heat, HEAT_OVERHEAT, 1e-9, 'fully lifted cones add no heat');
+});
+
+test('a lifted fuel circle is clicked at its shrunk size', () => {
+	const sim = new Reactor(), plant = emptyPlant(sim);
+	plant.add('F', 0, 0);
+	plant.fuel[0].fuel = FUEL_LOW;
+	plant.heat = 110; // half lifted: radius 19
+	assert.equal(plant.removeAt(30, 0), false, 'outside the lifted cone');
+	assert.equal(plant.removeAt(10, 0), true, 'inside the lifted cone');
+	assert.equal(plant.fuel.length, 0);
+});
+
+test('auto fuel clears depleted circles and tops up to the player number', () => {
+	const sim = new Reactor();
+	sim.plant.fuel.length = 0; sim.plant.coolers.length = 0;
+	sim.plant.add('F', 0, 0);
+	sim.plant.fuel[0].fuel = 0;
+	sim.autoFuel = true; sim.autoFuelTarget = 2;
+	sim.step();
+	assert.equal(sim.plant.fuel.length, 2, 'the depleted circle is replaced and topped up');
+	assert.ok(sim.plant.fuel.every(f => f.fuel === 1), 'the new circles are fresh');
+});
+
+test('auto fuel respects the fuel maximum and stays off by default', () => {
+	const sim = new Reactor();
+	assert.equal(sim.autoFuel, false, 'auto is off by default');
+	sim.plant.fuel.length = 0; sim.plant.coolers.length = 0;
+	sim.plant.add('F', 0, 0);
+	sim.plant.fuel[0].fuel = 0;
+	sim.step();
+	assert.equal(sim.plant.fuel.length, 1, 'a depleted circle stays without auto');
+	sim.autoFuel = true; sim.autoFuelTarget = 99;
+	sim.step();
+	assert.equal(sim.plant.fuel.length, MAX_FUEL, 'the target clamps to the maximum');
+	sim.reset();
+	assert.equal(sim.autoFuel, false, 'reset turns auto off');
+	assert.equal(sim.autoFuelTarget, 3, 'reset restores the default number');
 });
 
 test('new circles land at open spots inside the chamber and respect the maximum', () => {

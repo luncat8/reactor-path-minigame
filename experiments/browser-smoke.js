@@ -62,6 +62,10 @@ const path = require('node:path');
 		await page.waitForTimeout(300);
 		assert.equal(await page.locator('#guide-readout').isVisible(), true);
 		assert.match(await page.locator('#guide-readout').textContent(), /loop \d+\.\d s|no closed loop committed/);
+		await page.check('#auto-fuel');
+		await page.locator('#auto-fuel-count').fill('2');
+		await page.click('#add-fuel');
+		assert.equal(await page.locator('#auto-fuel-count').inputValue(), '4', 'the last add press sets the auto number');
 		await page.click('#reset');
 		assert.equal(await page.locator('#clock').textContent(), 'T + 000.0 s');
 		assert.equal(await page.locator('#angle-value').textContent(), '90°');
@@ -71,6 +75,8 @@ const path = require('node:path');
 		assert.equal(await page.locator('#guide-velocity-value').textContent(), '0.35×');
 		assert.equal(await page.locator('#guide-period-value').textContent(), '2.0 s');
 		assert.equal(await page.locator('#debug-guidance').isChecked(), false);
+		assert.equal(await page.locator('#auto-fuel').isChecked(), false);
+		assert.equal(await page.locator('#auto-fuel-count').inputValue(), '3');
 		assert.equal(await page.locator('#guide-readout').isVisible(), false);
 		assert.equal(await page.locator('#guide-legend').isVisible(), false);
 		await page.setViewportSize({ width: 390, height: 844 });
@@ -81,7 +87,7 @@ const path = require('node:path');
 		await page.waitForFunction(() => document.getElementById('clock').textContent !== 'T + 000.0 s');
 		assert.deepEqual(errors, []);
 		assert.deepEqual(network, []);
-		console.log('PASS: file://, offline loading, pause/step/reset, selection, angle, polarity, keyboard, drag, guidance, mobile layout, resume, and no page errors');
+		console.log('PASS: file://, offline loading, pause/step/reset, selection, angle, polarity, keyboard, drag, guidance, auto fuel, mobile layout, resume, and no page errors');
 	} finally {
 		await browser.close();
 	}

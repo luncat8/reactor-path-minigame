@@ -1,11 +1,13 @@
 (function () {
 	'use strict';
-	const { Reactor, DT, TAU, FORECAST_PERIOD } = ReactorCore;
+	const { Reactor, DT, TAU, FORECAST_PERIOD, FUEL_LOW, HEAT_MAX, TARGET_MAX } = ReactorCore;
 	// The debug overlay shows the committed loop rail and all three vectors used to judge it:
 	// rail movement at the aim point, current movement, and the resulting matching force.
 	const GUIDE_ARROW_MINIMUM = 0.25;
 	const MOVEMENT_VECTOR_TIME = 0.22;
-	const sim = new Reactor();
+	// Output bars share one scale, with headroom above the highest possible target.
+	const OUTPUT_BAR_MAX = 30;
+	const sim = new Reactor(Math.floor(Math.random() * 4294967296));
 	const canvas = document.getElementById('c');
 	const ctx = canvas.getContext('2d');
 	const $ = id => document.getElementById(id);
@@ -19,14 +21,16 @@
 		guidePeriod: $('guide-period'), guidePeriodValue: $('guide-period-value'), guideReadout: $('guide-readout'),
 		debugGuidance: $('debug-guidance'), pause: $('pause'), step: $('step'),
 		speed: $('speed'), speedValue: $('speed-value'),
-		clock: $('clock'), status: $('status'), light: $('status-light'), stability: $('stability'), cooling: $('cooling-value')
+		clock: $('clock'), status: $('status'),
+		heatFill: $('heat-fill'), heatValue: $('heat-value'), outputFill: $('output-fill'), outputValue: $('output-value'),
+		targetMarker: $('target-marker'), targetValue: $('target-value'), score: $('score-value'), match: $('match-value'),
+		addFuel: $('add-fuel'), addCooler: $('add-cooler'), fuelCount: $('fuel-count'), coolerCount: $('cooler-count')
 	};
 	let selected = 0, paused = false, speed = 1, accumulator = 0, last = 0, lastUI = 0;
 	let scale = 1, width = 800, height = 650, pixelRatio = 1;
 	const pointer = { x: 0, y: 0 };
 	const drag = { mode: '', target: -1, offsetX: 0, offsetY: 0, lastAngle: 0 };
-	const buttons = [], meters = [];
-	const forecastLabels = ['', '', ''];
+	const buttons = [];
 	const instrument = () => selected < 4 ? sim.magnets[selected] : sim.reflectors[selected - 4];
 	for (let i = 0; i < 6; i++) {
 		const button = document.createElement('button');
@@ -36,13 +40,8 @@
 		$('instruments').append(button);
 		buttons.push(button);
 	}
-	for (const target of sim.targets) {
-		const row = document.createElement('div');
-		row.className = 'target-meter';
-		row.innerHTML = '<div class="meter-label"><span>Target ' + target.name + '</span><b>−100%</b></div><div class="meter-track"><div class="meter-fill"></div></div>';
-		$('target-meters').append(row);
-		meters.push({ label: row.querySelector('b'), fill: row.querySelector('.meter-fill') });
-	}
+	ui.addFuel.addEventListener('click', () => { sim.addCircle('F'); updateUI(); });
+	ui.addCooler.addEventListener('click', () => { sim.addCircle('C'); updateUI(); });
 
 	function syncControls() {
 		const item = instrument();
@@ -69,7 +68,6 @@
 		// force-re-derives the loop rail so it follows the new field even mid-ride.
 		sim.predict(fieldEdit);
 		sim.forecastClock = 0;
-		sim.stableTime = 0;
 		syncControls();
 		updateUI();
 	}
@@ -151,6 +149,7 @@
 	canvas.addEventListener('pointerdown', event => {
 		if (event.button !== 0) return;
 		locate(event);
+		if (sim.plant.removeAt(pointer.x, pointer.y)) { updateUI(); return; }
 		const hit = hitInstrument(pointer.x, pointer.y);
 		if (hit >= 0) selected = hit;
 		canvas.focus(); syncControls();
@@ -281,6 +280,30 @@
 		}
 		ctx.restore();
 	}
+	function drawCooler(cooler) {
+		const c = cooler;
+		circle(c.x, c.y, c.radius); ctx.fillStyle = '#342720'; ctx.fill(); ctx.strokeStyle = '#815940'; ctx.lineWidth = 1; ctx.stroke();
+		ctx.save(); ctx.clip(); ctx.strokeStyle = '#50392c';
+		for (let d = -100; d < 100; d += 10) line(c.x + d, c.y - 60, c.x + d + 120, c.y + 60);
+		ctx.restore();
+		ctx.fillStyle = '#c18e68'; ctx.textAlign = 'center'; ctx.font = '9px monospace'; ctx.fillText('COOL', c.x, c.y + 3);
+		ctx.font = '11px monospace'; ctx.fillText(c.name, c.x, c.y - c.radius - 6);
+	}
+	// Fuel shows its remaining fuel as a bar; a dashed ring marks a circle that may be removed.
+	function drawFuel(fuel) {
+		const f = fuel;
+		const removable = f.fuel <= FUEL_LOW;
+		ctx.lineWidth = 1; circle(f.x, f.y, f.radius); ctx.fillStyle = '#f3bd7212'; ctx.fill();
+		ctx.strokeStyle = removable ? '#f3bd72' : '#f3bd727a';
+		if (removable) ctx.setLineDash([4, 3]);
+		ctx.stroke(); ctx.setLineDash([]);
+		circle(f.x, f.y, 4); ctx.fillStyle = '#f3bd72'; ctx.fill();
+		ctx.font = '11px monospace'; ctx.textAlign = 'center'; ctx.fillText(f.name, f.x, f.y - f.radius - 6);
+		ctx.fillStyle = '#263a3d'; ctx.fillRect(f.x - 32, f.y + f.radius + 9, 64, 4);
+		ctx.fillStyle = removable ? '#edbb70' : '#f3bd72'; ctx.fillRect(f.x - 32, f.y + f.radius + 9, 64 * f.fuel, 4);
+		if (!removable) return;
+		ctx.font = '10px monospace'; ctx.fillStyle = '#f3bd72'; ctx.fillText('click to remove', f.x, f.y + f.radius + 28);
+	}
 	function draw() {
 		ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
 		ctx.clearRect(0, 0, width, height);
@@ -295,13 +318,7 @@
 		line(-14, 0, 14, 0); line(0, -14, 0, 14);
 		ctx.font = '10px monospace'; ctx.textAlign = 'left'; ctx.fillStyle = '#567177';
 		ctx.fillText('CONFINEMENT FIELD', -348, -297); ctx.textAlign = 'right'; ctx.fillText('700 × 540', 350, -297);
-		for (let i = 0; i < sim.zones.length; i++) {
-			const z = sim.zones[i];
-			circle(z.x, z.y, z.radius); ctx.fillStyle = '#342720'; ctx.fill(); ctx.strokeStyle = '#815940'; ctx.stroke();
-			ctx.save(); ctx.clip(); ctx.strokeStyle = '#50392c';
-			for (let d = -100; d < 100; d += 10) line(z.x + d, z.y - 60, z.x + d + 120, z.y + 60);
-			ctx.restore(); ctx.fillStyle = '#c18e68'; ctx.textAlign = 'center'; ctx.font = '9px monospace'; ctx.fillText('COOL', z.x, z.y + 3);
-		}
+		for (const cooler of sim.plant.coolers) drawCooler(cooler);
 		ctx.strokeStyle = '#70e2d34f'; ctx.lineWidth = 1.3; ctx.beginPath();
 		for (let i = 0; i < sim.path.count; i++) {
 			if (i === 0) ctx.moveTo(sim.path.x[i], sim.path.y[i]);
@@ -317,16 +334,7 @@
 			else ctx.lineTo(sim.trailX[j], sim.trailY[j]);
 		}
 		ctx.stroke();
-		for (let i = 0; i < sim.targets.length; i++) {
-			const t = sim.targets[i];
-			ctx.lineWidth = 1; circle(t.x, t.y, t.radius); ctx.fillStyle = '#70e2d30a'; ctx.fill(); ctx.strokeStyle = '#70e2d37a'; ctx.stroke();
-			circle(t.x, t.y, 4); ctx.fillStyle = '#70e2d3'; ctx.fill();
-			ctx.font = '11px monospace'; ctx.textAlign = 'center'; ctx.fillText(t.name, t.x, t.y - 15);
-			ctx.fillStyle = '#263a3d'; ctx.fillRect(t.x - 32, t.y + t.radius + 9, 64, 4);
-			ctx.fillStyle = '#70e2d3'; ctx.fillRect(t.x - 32, t.y + t.radius + 9, Math.min(64, 32 * t.predicted / t.desired), 4);
-			ctx.fillStyle = '#b2c9c5'; ctx.fillRect(t.x, t.y + t.radius + 7, 1, 8);
-			ctx.font = '10px monospace'; ctx.fillText(forecastLabels[i], t.x, t.y + t.radius + 28);
-		}
+		for (const fuel of sim.plant.fuel) drawFuel(fuel);
 		for (let i = 0; i < sim.reflectors.length; i++) {
 			const r = sim.reflectors[i]; ctx.save(); ctx.translate(r.x, r.y); ctx.rotate(r.angle);
 			ctx.strokeStyle = selected === i + 4 ? '#eee2b5' : '#819ba9'; ctx.lineWidth = selected === i + 4 ? 5 : 3;
@@ -349,7 +357,6 @@
 		drawLiveGuidance();
 	}
 
-	function signed(value) { return (value >= 0 ? '+' : '−') + Math.abs(value).toFixed(0) + '%'; }
 	function updateUI() {
 		ui.clock.textContent = 'T + ' + sim.time.toFixed(1).padStart(5, '0') + ' s';
 		ui.guideStrengthValue.textContent = Math.round(sim.guideStrength * 100) + '%';
@@ -358,15 +365,26 @@
 		ui.guideVelocityValue.textContent = sim.guideVelocity.toFixed(2) + '×';
 		ui.guidePeriodValue.textContent = sim.guidePeriod.toFixed(1) + ' s';
 		updateGuideReadout();
-		for (let i = 0; i < sim.targets.length; i++) {
-			const t = sim.targets[i];
-			meters[i].label.textContent = signed((t.actual / t.desired - 1) * 100);
-			meters[i].fill.style.width = Math.min(100, 50 * t.actual / t.desired) + '%';
-			forecastLabels[i] = signed((t.predicted / t.desired - 1) * 100);
-		}
-		ui.cooling.textContent = (sim.cooling * 100).toFixed(1) + '%';
-		ui.cooling.title = 'Forecast: ' + (sim.predictedCooling * 100).toFixed(1) + '%';
-		ui.status.style.background = sim.stableTime > 0 ? '#70e2d3' : '#edbb70';
+		updateReactorUI();
+	}
+	function updateReactorUI() {
+		const plant = sim.plant;
+		const matching = plant.matching();
+		ui.heatFill.style.width = (100 * plant.heat / HEAT_MAX) + '%';
+		ui.heatValue.textContent = Math.round(100 * plant.heat / HEAT_MAX) + '%';
+		ui.outputFill.style.width = Math.min(100, 100 * plant.outputRate / OUTPUT_BAR_MAX) + '%';
+		ui.outputValue.textContent = plant.outputRate.toFixed(1) + ' %/s';
+		ui.targetMarker.style.left = Math.min(100, 100 * plant.target / OUTPUT_BAR_MAX) + '%';
+		ui.targetValue.textContent = plant.target.toFixed(1) + ' %/s';
+		ui.score.textContent = Math.round(plant.score).toString();
+		ui.match.textContent = Math.round(100 * plant.onTarget / Math.max(plant.elapsed, 1e-9)) + '%';
+		const fuelMax = plant.kinds.F.max, coolerMax = plant.kinds.C.max;
+		ui.fuelCount.textContent = plant.fuel.length + ' / ' + fuelMax;
+		ui.coolerCount.textContent = plant.coolers.length + ' / ' + coolerMax;
+		ui.addFuel.disabled = plant.fuel.length >= fuelMax;
+		ui.addCooler.disabled = plant.coolers.length >= coolerMax;
+		ui.status.textContent = matching ? 'OUTPUT ON TARGET' : 'OUTPUT OFF TARGET';
+		ui.status.style.background = matching ? '#70e2d3' : '#edbb70';
 	}
 	function updateGuideReadout() {
 		if (!ui.debugGuidance.checked) { ui.guideReadout.textContent = ''; return; }

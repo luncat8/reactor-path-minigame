@@ -43,6 +43,16 @@ this looks difficult to think what should be proper force direction to gently gu
 
 feel free to make experments and/or add more sliders or approach selectors.
 
+## gameplay
 
+target fuel circles: particle cross it cause whole reactor heat up (show reactor heat level) and fuel burn-out (show remain fuel bar).
+	once fuel low it may be removed (click). button to place new fuel circle in random location (max 4).
 
+cooler circle: particle cross it cause whole reactor cool down (this  heat count as produced output heat. calculate output heat per time. player got score as heat output is same as target value per time. target value randomly slowly changed).
+	cooler may be removed (click).  button to place new in random location.
 
+checkbox: auto to
+	remove depleted
+	add new fuel up to number set by player (num at last add button pressed or default num)
+
+fuel circle size: heat<100 then size 100%. heat 100...120 size shrink to 0. this emulate fuel cones gradually lift up to prevent overheat.

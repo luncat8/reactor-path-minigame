@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { Reactor, DT, TAU, FORECAST_PERIOD, circleFraction, reflect } = require('../js/reactor.js');
+const { Reactor, DT, TAU, FORECAST_PERIOD, circleFraction, reflect, FUEL_LOW, HEAT_MAX, TARGET_MIN, TARGET_MAX, MAX_FUEL, MAX_COOLERS } = require('../js/reactor.js');
 const near = (a, b, tolerance = 1e-9) => assert.ok(Math.abs(a - b) < tolerance, `${a} ≠ ${b}`);
 const FORECAST_TOLERANCE = 0.02;
 
@@ -13,13 +13,6 @@ test('circle dwell handles crossing, partial crossing, stationary, and tangent s
 	near(circleFraction(-2, 1, 2, 1, 0, 0, 1), 0);
 });
 
-test('dwell uses timestamp intervals rather than sample counts', () => {
-	const sim = new Reactor();
-	sim.path.count = 3;
-	sim.path.x.set([-2, 0, 2]); sim.path.y.fill(0); sim.path.t.set([4, 5, 8]);
-	near(sim.pathDwell({ x: 0, y: 0, radius: 1 }), 2);
-});
-
 test('forecast starts at live state, has monotonic absolute timestamps, and never mutates particle', () => {
 	const sim = new Reactor();
 	for (let i = 0; i < 80; i++) sim.step();
@@ -29,7 +22,6 @@ test('forecast starts at live state, has monotonic absolute timestamps, and neve
 	near(sim.path.x[0], before.x); near(sim.path.y[0], before.y); near(sim.path.t[0], sim.time);
 	near(sim.path.t[sim.path.count - 1] - sim.path.t[0], 14);
 	for (let i = 1; i < sim.path.count; i++) assert.ok(sim.path.t[i] > sim.path.t[i - 1]);
-	for (const target of sim.targets) assert.ok(target.predicted >= 0 && target.predicted <= 1);
 });
 
 test('grazing crossings reflect, steep impacts and misses pass through', () => {
@@ -75,7 +67,7 @@ test('simulation is deterministic and reset restores the initial prediction', ()
 	assert.deepEqual(a.path, b.path);
 	a.reset();
 	assert.deepEqual(Array.from(a.path.x), initial);
-	near(a.time, 0); near(a.cooling, 0); near(a.trailCount, 0);
+	near(a.time, 0); near(a.trailCount, 0); assert.equal(a.plant.fuel.length, 3); assert.equal(a.plant.coolers.length, 2);
 });
 
 test('magnet position, orientation, and polarity influence forecasts', () => {
@@ -346,9 +338,9 @@ test('long runs remain finite and bounded across guide settings', () => {
 	}
 });
 
-test('targets and cooling zones do not alter particle dynamics', () => {
+test('fuel and cooler circles do not alter particle dynamics', () => {
 	const a = new Reactor(), b = new Reactor();
-	b.targets.length = 0; b.zones.length = 0;
+	b.plant.fuel.length = 0; b.plant.coolers.length = 0;
 	for (let i = 0; i < 300; i++) { a.step(); b.step(); }
 	assert.deepEqual(a.particle, b.particle);
 });
@@ -361,7 +353,116 @@ test('skipDisplayForecast leaves live dynamics bit-identical', () => {
 	assert.deepEqual(a.particle, b.particle);
 	assert.equal(a.loop.count, b.loop.count);
 	assert.equal(a.loop.period, b.loop.period);
-	assert.equal(a.stableTime, b.stableTime);
-	for (let k = 0; k < a.targets.length; k++) assert.equal(a.targets[k].actual, b.targets[k].actual);
-	assert.equal(a.cooling, b.cooling);
+	assert.equal(a.plant.heat, b.plant.heat);
+	assert.equal(a.plant.score, b.plant.score);
+	assert.equal(a.plant.target, b.plant.target);
 });
+
+// Plant tests drive the plant directly along a horizontal segment through a circle's centre.
+function beamAcross(plant, seconds, circle, rate) {
+	const segment = rate * DT;
+	for (let t = 0; t < seconds; t += DT) plant.advance(circle.x - segment, circle.y, circle.x + segment, circle.y, DT);
+}
+function emptyPlant(sim) {
+	sim.plant.fuel.length = 0; sim.plant.coolers.length = 0;
+	return sim.plant;
+}
+
+test('fuel circles heat the reactor and burn while the beam crosses them', () => {
+	const sim = new Reactor(), plant = emptyPlant(sim);
+	plant.add('F', 0, 0);
+	plant.heat = 0;
+	const fuel = plant.fuel[0];
+	beamAcross(plant, 0.5, fuel, 0);
+	assert.ok(plant.heat > 0, 'a crossing heats the reactor');
+	assert.ok(fuel.fuel < 1, 'a crossing burns fuel');
+	const heatAfterCrossing = plant.heat;
+	plant.advance(500, 500, 510, 500, DT);
+	assert.equal(plant.heat, heatAfterCrossing, 'a step away from the circle adds no heat');
+});
+
+test('a burned-out fuel circle stops adding heat', () => {
+	const sim = new Reactor(), plant = emptyPlant(sim);
+	plant.add('F', 0, 0);
+	plant.heat = 0;
+	plant.fuel[0].fuel = 0;
+	beamAcross(plant, 0.5, plant.fuel[0], 0);
+	near(plant.heat, 0);
+});
+
+test('cooler circles remove heat, and only the removed heat counts as output', () => {
+	const sim = new Reactor(), plant = emptyPlant(sim);
+	plant.add('C', 0, 0);
+	plant.heat = 10;
+	beamAcross(plant, 0.1, plant.coolers[0], 0);
+	assert.ok(plant.heat < 10, 'a cooler crossing removes heat');
+	assert.ok(plant.outputRate > 0, 'removed heat appears as output');
+	plant.heat = 0;
+	const output = plant.outputRate;
+	beamAcross(plant, 3, plant.coolers[0], 0);
+	near(plant.heat, 0);
+	assert.ok(plant.outputRate < output, 'with no heat left, cooling produces no output');
+});
+
+test('reactor heat stays within its scale', () => {
+	const sim = new Reactor(), plant = emptyPlant(sim);
+	plant.add('F', 0, 0); plant.add('F', 5, 0);
+	beamAcross(plant, 30, plant.fuel[0], 0);
+	assert.ok(plant.heat <= HEAT_MAX && plant.heat >= 0);
+	near(plant.heat, HEAT_MAX);
+});
+
+test('removal: low fuel circles and coolers can be clicked away, healthy fuel cannot', () => {
+	const sim = new Reactor(), plant = emptyPlant(sim);
+	plant.add('F', 0, 0); plant.add('F', 200, 0); plant.add('C', -200, 0);
+	plant.fuel[0].fuel = 1;
+	plant.fuel[1].fuel = FUEL_LOW;
+	assert.equal(plant.removeAt(0, 0), false, 'fuel above the low threshold stays');
+	assert.equal(plant.removeAt(200, 0), true, 'low fuel is removed on click');
+	assert.equal(plant.fuel.length, 1);
+	assert.equal(plant.removeAt(-200, 0), true, 'a cooler is removed on click');
+	assert.equal(plant.coolers.length, 0);
+	assert.equal(plant.removeAt(400, 400), false, 'clicks away from circles do nothing');
+});
+
+test('new circles land at open spots inside the chamber and respect the maximum', () => {
+	const sim = new Reactor();
+	for (let i = 0; i < 10; i++) sim.addCircle('F');
+	assert.equal(sim.plant.fuel.length, MAX_FUEL);
+	for (let i = 0; i < 10; i++) sim.addCircle('C');
+	assert.equal(sim.plant.coolers.length, MAX_COOLERS);
+	for (const c of sim.plant.fuel.concat(sim.plant.coolers)) {
+		assert.ok(Math.abs(c.x) <= 350 - c.radius && Math.abs(c.y) <= 270 - c.radius, `${c.name} inside the chamber`);
+	}
+	const fresh = sim.plant.fuel[sim.plant.fuel.length - 1];
+	for (const other of sim.plant.fuel.slice(0, -1)) {
+		assert.ok(Math.hypot(fresh.x - other.x, fresh.y - other.y) > fresh.radius + other.radius, 'no overlap with other fuel');
+	}
+});
+
+test('the output target drifts slowly within its range', () => {
+	const sim = new Reactor();
+	let previous = sim.plant.target, largestStep = 0;
+	for (let i = 0; i < 120 * 120; i++) {
+		sim.step();
+		largestStep = Math.max(largestStep, Math.abs(sim.plant.target - previous));
+		previous = sim.plant.target;
+		assert.ok(sim.plant.target >= TARGET_MIN - 1e-9 && sim.plant.target <= TARGET_MAX + 1e-9);
+	}
+	assert.ok(largestStep <= 0.3 * DT + 1e-9, 'the target never jumps');
+});
+
+test('score accrues only while output matches the target', () => {
+	const sim = new Reactor(), plant = emptyPlant(sim);
+	plant.target = 5;
+	plant.outputRate = 0;
+	const before = plant.score;
+	plant.updateScore(1);
+	assert.ok(plant.score - before < 1, 'a far-off output earns almost nothing');
+	plant.outputRate = 5;
+	const matched = plant.score;
+	plant.updateScore(1);
+	assert.ok(plant.score - matched > 9, 'a perfect match earns the full rate');
+	assert.ok(plant.matching());
+});
+

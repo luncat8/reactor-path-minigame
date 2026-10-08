@@ -89,16 +89,149 @@
 		return true;
 	}
 
+	// Reactor plant. Fuel circles add heat while the beam burns them; cooler circles pull heat
+	// out of the reactor, and the heat removed is the output. Heat is the buffer between them,
+	// so output can only match the target while fuel keeps supplying heat. Units: heat in %,
+	// rates in %/s of the heat scale.
+	const FUEL_RADIUS = 38;
+	const COOLER_RADIUS = 40;
+	const MAX_FUEL = 4;
+	const MAX_COOLERS = 4;
+	// A fuel circle may be removed once its fuel falls to this fraction.
+	const FUEL_LOW = 0.25;
+	const FUEL_BURN = 0.15;
+	const FUEL_HEAT = 30;
+	const COOLER_REMOVAL = 30;
+	const HEAT_MAX = 100;
+	const START_HEAT = 30;
+	// Output is the heat removed per second, smoothed so one crossing does not spike the readout.
+	const OUTPUT_TIME = 3;
+	const TARGET_MIN = 2;
+	const TARGET_MAX = 8;
+	const TARGET_START = 4;
+	// The target drifts slowly toward a new random goal every ~10 s.
+	const TARGET_SPEED = 0.3;
+	const TARGET_GOAL_PERIOD = 10;
+	const ON_TARGET_BAND = 0.1;
+	const SCORE_RATE = 10;
+	const PLACEMENT_MARGIN = 45;
+	const PLACEMENT_GAP = 15;
+	const PLACEMENT_ATTEMPTS = 60;
+	const MAGNET_CLEARANCE = 40;
+	const FUEL_SEEDS = [{ x: -215, y: -80 }, { x: 20, y: -175 }, { x: 210, y: 65 }];
+	const COOLER_SEEDS = [{ x: -85, y: 80 }, { x: 105, y: -55 }];
+
+	function removeCircle(list, x, y, removable) {
+		for (let i = 0; i < list.length; i++) {
+			const c = list[i];
+			if (removable(c) && Math.hypot(x - c.x, y - c.y) <= c.radius) {
+				list.splice(i, 1);
+				return true;
+			}
+		}
+		return false;
+	}
+
+	class ReactorPlant {
+		constructor(random) {
+			this.random = random;
+			this.fuel = [];
+			this.coolers = [];
+			this.kinds = {
+				F: { list: this.fuel, radius: FUEL_RADIUS, max: MAX_FUEL, serial: 0 },
+				C: { list: this.coolers, radius: COOLER_RADIUS, max: MAX_COOLERS, serial: 0 }
+			};
+			this.reset();
+		}
+
+		reset() {
+			this.fuel.length = 0;
+			this.coolers.length = 0;
+			this.kinds.F.serial = 0;
+			this.kinds.C.serial = 0;
+			for (const seed of FUEL_SEEDS) this.add('F', seed.x, seed.y);
+			for (const seed of COOLER_SEEDS) this.add('C', seed.x, seed.y);
+			this.heat = START_HEAT;
+			this.outputRate = 0;
+			this.target = TARGET_START;
+			this.goal = TARGET_START;
+			this.goalClock = 0;
+			this.score = 0;
+			this.elapsed = 0;
+			this.onTarget = 0;
+		}
+
+		add(prefix, x, y) {
+			const kind = this.kinds[prefix];
+			kind.serial++;
+			kind.list.push({ x, y, radius: kind.radius, fuel: 1, name: prefix + kind.serial });
+		}
+
+		removeAt(x, y) {
+			return removeCircle(this.fuel, x, y, c => c.fuel <= FUEL_LOW) || removeCircle(this.coolers, x, y, () => true);
+		}
+
+		matching() {
+			return Math.abs(this.outputRate - this.target) <= ON_TARGET_BAND * this.target;
+		}
+
+		// Advances the plant by one simulation step of the beam segment a→b.
+		advance(ax, ay, bx, by, dt) {
+			for (const f of this.fuel) {
+				const dwell = circleFraction(ax, ay, bx, by, f.x, f.y, f.radius) * dt;
+				f.fuel = Math.max(0, f.fuel - FUEL_BURN * dwell);
+				if (f.fuel > 0) this.heat = Math.min(HEAT_MAX, this.heat + FUEL_HEAT * dwell);
+			}
+			let removed = 0;
+			for (const c of this.coolers) {
+				const amount = Math.min(this.heat, COOLER_REMOVAL * circleFraction(ax, ay, bx, by, c.x, c.y, c.radius) * dt);
+				this.heat -= amount;
+				removed += amount;
+			}
+			this.outputRate += (removed / dt - this.outputRate) * (1 - Math.exp(-dt / OUTPUT_TIME));
+			this.updateTarget(dt);
+			this.updateScore(dt);
+		}
+
+		updateTarget(dt) {
+			this.goalClock -= dt;
+			if (this.goalClock <= 0) {
+				this.goal = TARGET_MIN + (TARGET_MAX - TARGET_MIN) * this.random();
+				this.goalClock = TARGET_GOAL_PERIOD * (0.5 + this.random());
+			}
+			const step = TARGET_SPEED * dt;
+			this.target += clamp(this.goal - this.target, -step, step);
+		}
+
+		updateScore(dt) {
+			const error = Math.abs(this.outputRate - this.target);
+			this.elapsed += dt;
+			this.score += clamp(1 - error / this.target, 0, 1) * SCORE_RATE * dt;
+			if (this.matching()) this.onTarget += dt;
+		}
+	}
+
+	function seededRandom(seed) {
+		let state = seed >>> 0;
+		return () => {
+			state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+			return state / 4294967296;
+		};
+	}
+
 	class Reactor {
-		constructor() {
+		// The seed drives the random target drift and circle placement, so runs are reproducible.
+		constructor(seed = 1) {
 			// Experiment-harness flag: skip the display forecast pass (guided route,
-			// predicted duties). Loop detection, commitment, and live dynamics are
+			// the guided route). Loop detection, commitment, and live dynamics are
 			// bit-identical; batch searches run ~10x faster with it set.
 			this.skipDisplayForecast = false;
 			this.scratch = { x: 0, y: 0, vx: 0, vy: 0 };
 			this.particle = { x: 0, y: 0, vx: 0, vy: 0 };
 			this.guideForce = { x: 0, y: 0 };
 			this.forecastForce = { x: 0, y: 0 };
+			this.random = seededRandom(seed);
+			this.plant = new ReactorPlant(() => this.random());
 			this.loop = makeLoop();
 			this.railEntry = { x: 0, y: 0, vx: 0, vy: 0 };
 			this.anchor = { segment: -1, position: 0, distance: 0, angle: 0 };
@@ -125,9 +258,6 @@
 			this.guidePeriod = 2;
 			this.forecastClock = 0;
 			this.forecastInterval = FORECAST_PERIOD;
-			this.stableTime = 0;
-			this.cooling = 0;
-			this.predictedCooling = 0;
 			this.trailCount = 0;
 			this.trailHead = 0;
 			this.magnets = [
@@ -140,16 +270,8 @@
 				{ x: -150, y: -100, angle: -0.35, length: 105, name: 'R1' },
 				{ x: 160, y: 110, angle: -0.5, length: 105, name: 'R2' }
 			];
-			this.targets = [
-				{ x: -215, y: -80, radius: 38, desired: 0.065, actual: 0, predicted: 0, name: 'A' },
-				{ x: 20, y: -175, radius: 38, desired: 0.065, actual: 0, predicted: 0, name: 'B' },
-				{ x: 210, y: 65, radius: 38, desired: 0.065, actual: 0, predicted: 0, name: 'C' }
-			];
-			this.zones = [
-				{ x: -85, y: 80, radius: 45 },
-				{ x: 105, y: -55, radius: 42 }
-			];
-		Object.assign(this.particle, { x: -230, y: 0, vx: 0, vy: -151 });
+			this.plant.reset();
+			Object.assign(this.particle, { x: -230, y: 0, vx: 0, vy: -151 });
 		this.liveForce.x = 0;
 		this.liveForce.y = 0;
 		this.liveDebug.valid = false;
@@ -487,6 +609,36 @@
 			}
 		}
 
+		// Placement is random but never overlaps another circle, a magnet, or a reflector.
+		isOpenSpot(x, y, radius) {
+			const near = (item, reach) => Math.hypot(x - item.x, y - item.y) < reach;
+			for (const c of this.plant.fuel) if (near(c, radius + c.radius + PLACEMENT_GAP)) return false;
+			for (const c of this.plant.coolers) if (near(c, radius + c.radius + PLACEMENT_GAP)) return false;
+			for (const m of this.magnets) if (near(m, radius + MAGNET_CLEARANCE)) return false;
+			for (const r of this.reflectors) if (near(r, radius + r.length / 2 + PLACEMENT_GAP)) return false;
+			return true;
+		}
+
+		findOpenSpot(radius) {
+			const halfWidth = 350 - radius - PLACEMENT_MARGIN, halfHeight = 270 - radius - PLACEMENT_MARGIN;
+			let x = 0, y = 0;
+			for (let attempt = 0; attempt < PLACEMENT_ATTEMPTS; attempt++) {
+				x = (this.random() * 2 - 1) * halfWidth;
+				y = (this.random() * 2 - 1) * halfHeight;
+				if (this.isOpenSpot(x, y, radius)) break;
+			}
+			return { x, y };
+		}
+
+		// Places a new fuel ('F') or cooler ('C') circle at a random open spot, up to its maximum.
+		addCircle(prefix) {
+			const kind = this.plant.kinds[prefix];
+			if (kind.list.length >= kind.max) return false;
+			const spot = this.findOpenSpot(kind.radius);
+			this.plant.add(prefix, spot.x, spot.y);
+			return true;
+		}
+
 		predict(force) {
 			// Two reusable passes with different jobs. The first pass is unguided: it shows what
 			// the field alone would do, and its best near-recurrence is the loop the field almost
@@ -500,20 +652,6 @@
 			this.forecastInto(this.path, this.guideStrength);
 			const live = this.guidanceVector(this.particle, this.guideStrength, this.liveDebug);
 			this.liveForce.x = live.x; this.liveForce.y = live.y;
-			const horizon = this.path.t[SAMPLES - 1] - this.path.t[0];
-			for (let i = 0; i < this.targets.length; i++) this.targets[i].predicted = this.pathDwell(this.targets[i]) / horizon;
-			this.predictedCooling = 0;
-			for (let i = 0; i < this.zones.length; i++) this.predictedCooling += this.pathDwell(this.zones[i]) / horizon;
-		}
-
-		pathDwell(circle) {
-			let dwell = 0;
-			const p = this.path;
-			for (let i = 1; i < p.count; i++) {
-				dwell += circleFraction(p.x[i - 1], p.y[i - 1], p.x[i], p.y[i], circle.x, circle.y, circle.radius) *
-					(p.t[i] - p.t[i - 1]);
-			}
-			return dwell;
 		}
 
 		step() {
@@ -522,21 +660,7 @@
 			this.time += DT;
 			const force = this.guidanceVector(p, this.guideStrength, this.liveDebug);
 			this.liveForce.x = force.x; this.liveForce.y = force.y;
-			const smoothing = 1 - Math.exp(-DT / 10);
-			let balanced = this.time > 14;
-			for (let i = 0; i < this.targets.length; i++) {
-				const t = this.targets[i];
-				const exposure = circleFraction(ax, ay, p.x, p.y, t.x, t.y, t.radius);
-				t.actual += (exposure - t.actual) * smoothing;
-				if (Math.abs(t.actual / t.desired - 1) > 0.3) balanced = false;
-			}
-			let exposure = 0;
-			for (let i = 0; i < this.zones.length; i++) {
-				const z = this.zones[i];
-				exposure += circleFraction(ax, ay, p.x, p.y, z.x, z.y, z.radius);
-			}
-			this.cooling += (exposure - this.cooling) * smoothing;
-			this.stableTime = balanced && this.cooling < 0.015 ? this.stableTime + DT : 0;
+			this.plant.advance(ax, ay, p.x, p.y, DT);
 			this.trailX[this.trailHead] = p.x;
 			this.trailY[this.trailHead] = p.y;
 			this.trailHead = (this.trailHead + 1) % this.trailX.length;
@@ -548,7 +672,7 @@
 		}
 	}
 
-	const api = { Reactor, DT, TAU, FORECAST_PERIOD, circleFraction, reflect };
+	const api = { Reactor, DT, TAU, FORECAST_PERIOD, circleFraction, reflect, FUEL_LOW, HEAT_MAX, TARGET_MIN, TARGET_MAX, MAX_FUEL, MAX_COOLERS };
 	if (typeof module !== 'undefined' && module.exports) module.exports = api;
 	root.ReactorCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

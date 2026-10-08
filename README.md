@@ -1,6 +1,6 @@
 # Reactor path minigame
 
-A dependency-free HTML/JavaScript experiment: tune a single beam's evolving orbit with magnets and grazing-angle reflectors. Activate three targets evenly while avoiding transparent cooling zones.
+A dependency-free HTML/JavaScript experiment: tune a single beam's evolving orbit with magnets and grazing-angle reflectors. Fuel circles heat the reactor as the beam burns them; cooler circles pull heat out, and that removed heat is the output. Keep the output equal to a slowly drifting target.
 
 ## Run
 
@@ -47,14 +47,19 @@ Enable **Show guidance state and forces** to inspect the exact decision:
 
 The white arrow is hidden below magnitude 0.25 to avoid enlarging numerical dust; the readout still reports the exact value. Arrow lengths use a square-root scale.
 
+## Reactor plant
+
+- **Fuel circles** (amber, F1…): each beam crossing adds reactor heat and burns fuel. The bar under a circle is its remaining fuel. Once fuel drops to 25% the circle is dashed: click it to remove it. Up to 4 fuel circles.
+- **Cooler circles** (hatched, C1…): each beam crossing removes reactor heat. Only heat actually removed counts as **output heat**, shown as a rate in %/s. Click a cooler to remove it. Up to 4 coolers.
+- **Add fuel** / **Add cooler** place a new circle at a random open spot that does not overlap circles, magnets, or reflectors.
+- **Score** accumulates while the output rate matches the **target** (white marker on the output bar). The target drifts slowly toward random goals between 2 and 8 %/s. Heat is capped at 100%, so output above the fuel supply drains the buffer and cannot last.
+
 ## Read the chamber
 
 - Thin cyan line: finite **14-second forecast**, refreshed every 0.6 s of real time (its simulation-time interval stretches with the speed slider).
 - Bright line: recent actual beam history; bright dot: live particle.
-- Target bars next to the circles: **predicted percentage deviation** from each target's requested duty cycle.
-- Side panel: **live activation deviation**, exponentially smoothed with a 10-second time constant. A zero deviation means the target receives its requested 6.5% beam occupancy. Bars' midpoint marks that goal.
-- Hatched amber zones: cooling exposure; they do not reflect the particle.
-- Stability requires all live targets within ±30% of requested activation and cooling exposure below 1.5%, sustained for eight seconds after the initial 14-second warmup.
+- Side panel: **reactor heat level**, **output heat** (smoothed, 3-second time constant) against the **target** marker, score, and the share of time spent on target (within ±10%).
+- Fuel and cooler circles do not reflect the particle.
 
 This is a gameplay field model, not a physical reactor simulation. A weak anisotropic restoring field, soft boundary confinement, and gentle speed regulation keep the experiment in the chamber. Magnet orientation modulates a softened directional field; reversing polarity reverses its force.
 
@@ -73,7 +78,7 @@ node --test tests/*.test.js
 node experiments/guidance-probe.js
 ```
 
-`experiments/guidance-probe.js` reports loop detection and compares phase recurrence with guidance disabled and enabled. `experiments/edit-continuity.js` measures how far a magnet or reflector nudge moves the rail and the beam (the transport keeps both proportional to the edit), that a large edit still re-derives the rail, and that a drag keeps the beam inside the pull tolerance. `experiments/ui-wiring.js` loads the page against a minimal DOM stub and drives the transport controls, standing in for the Playwright smoke test where no browser binary exists. `experiments/loop-sweep.js` sweeps guide strength against pull tolerance; `experiments/validate-tuned.js` checks the tuned defaults over long runs, determinism, and magnet perturbation recovery (one-shot edit, reported per phase window), plus a large-edit boundary probe. `experiments/preset-search.js` searches UI-reachable magnet and reflector layouts for a known-stable preset: it evaluates a layout by the *worst* deviation over a long horizon (locked orbits on searched fields can swing duties in a slow limit cycle, so a snapshot is misleading), scores rail churn and ride wander, resumes from earlier search logs, rounds candidates to ship granularity, and confirms survivors at full fidelity. Its rounds are recorded under `experiments/logs/`. `experiments/browser-smoke.js` is an optional Playwright smoke test; install Playwright outside the runtime tree and optionally supply `BROWSER_EXECUTABLE`.
+`experiments/guidance-probe.js` reports loop detection and compares phase recurrence with guidance disabled and enabled. `experiments/edit-continuity.js` measures how far a magnet or reflector nudge moves the rail and the beam (the transport keeps both proportional to the edit), that a large edit still re-derives the rail, and that a drag keeps the beam inside the pull tolerance. `experiments/ui-wiring.js` loads the page against a minimal DOM stub and drives the transport controls, standing in for the Playwright smoke test where no browser binary exists. `experiments/loop-sweep.js` sweeps guide strength against pull tolerance; `experiments/validate-tuned.js` checks the tuned defaults over long runs, determinism, and magnet perturbation recovery (one-shot edit, reported per phase window), plus a large-edit boundary probe. `experiments/preset-search.js` (and `validate-tuned.js`'s stability section) measure the retired activation objective and no longer run against the current plant. `experiments/preset-search.js` searches UI-reachable magnet and reflector layouts for a known-stable preset: it evaluates a layout by the *worst* deviation over a long horizon (locked orbits on searched fields can swing duties in a slow limit cycle, so a snapshot is misleading), scores rail churn and ride wander, resumes from earlier search logs, rounds candidates to ship granularity, and confirms survivors at full fidelity. Its rounds are recorded under `experiments/logs/`. `experiments/browser-smoke.js` is an optional Playwright smoke test; install Playwright outside the runtime tree and optionally supply `BROWSER_EXECUTABLE`.
 
 ## Prototype boundaries / next work
 

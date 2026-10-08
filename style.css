@@ -26,6 +26,7 @@ canvas { display: block; width: 100%; aspect-ratio: 800 / 650; touch-action: non
 .legend span { display: flex; align-items: center; gap: 7px; }
 .line { width: 16px; height: 1px; display: inline-block; }.cyan { background: var(--cyan); }.white { background: #edf9f4; }
 .zone { width: 9px; height: 9px; border: 1px solid #c88b61; border-radius: 50%; }
+.fuel-dot { width: 9px; height: 9px; border: 1px solid #f3bd72; border-radius: 50%; }
 #guide-legend { display: none; }#guide-legend.visible { display: flex; }#guide-legend .line { background: #f3bd72; }#guide-legend .line.live { background: #ffffff; margin-left: 4px; }#guide-legend .line.current { background: #70e2d3; margin-left: 4px; }#guide-legend .line.target { background: #8bff9e; margin-left: 4px; }#guide-legend .ring { width: 8px; height: 8px; border: 1.5px solid #8bff9e; border-radius: 50%; }
 .readout { display: none; font: 10px monospace; color: #f3bd72; }
 .transport { display: flex; align-items: center; gap: 8px; padding: 15px 18px; border-top: 1px solid var(--line); }
@@ -53,7 +54,9 @@ input[type=range] { width: 100%; accent-color: var(--cyan); margin: 12px 0 19px;
 .micro { font-size: 10px; color: #789095; line-height: 1.7; margin: 14px 0 0; }
 .readout.visible { display: block; }
 .target-meter { margin-top: 19px; }.meter-label { display: flex; justify-content: space-between; font: 11px monospace; color: #afc1c1; }.meter-label b { font-weight: 400; color: var(--cyan); }
-.meter-track { height: 5px; margin-top: 9px; background: #263236; position: relative; }.meter-track::after { content: ''; position: absolute; left: 50%; top: -3px; height: 11px; width: 1px; background: #8ba7a6; }.meter-fill { height: 100%; width: 0; background: var(--cyan); }
+.meter-track { height: 5px; margin-top: 9px; background: #263236; position: relative; }.meter-track::after { content: ''; position: absolute; left: 50%; top: -3px; height: 11px; width: 1px; background: #8ba7a6; }.meter-track.plain::after { display: none; }.meter-fill { height: 100%; width: 0; background: var(--cyan); }.meter-fill.heat { background: #edbb70; }
+.target-marker { position: absolute; top: -4px; height: 13px; width: 2px; margin-left: -1px; background: #f3f1e6; }
+.button-row { display: flex; gap: 8px; margin-top: 18px; }.button-row button { flex: 1; font-size: 11px; padding: 8px 6px; }.button-row span { font-family: monospace; color: var(--cyan); }
 .cooling-row { border-top: 1px solid var(--line); margin-top: 22px; padding-top: 15px; display: flex; justify-content: space-between; font-size: 11px; color: #a4b7b9; }.cooling-row strong { font: 12px monospace; color: #edbb70; }
 .guide-card .panel-heading { margin-bottom: 17px; }.guide-card input { margin-bottom: 5px; }.guide-card .check-row input { margin: 0; }footer { display: flex; justify-content: space-between; gap: 25px; padding: 24px 0; font-size: 10px; line-height: 1.7; color: #738b8f; }footer b { color: #a2b6b7; font: 9px monospace; margin-right: 12px; }footer > span:last-child { font: 9px monospace; text-align: right; }
 @media (min-width: 1400px) { canvas { max-height: 760px; } }

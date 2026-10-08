@@ -1,0 +1,20 @@
+== screening: 8 descents, 2000 evaluations @ 75s, 570s wall ==
+  resume2:random7 score -0.310  maxDev 30%  cool 0.01%  eng 100%  stable 4.0s  (250 evals)
+  resume6:random6 score -0.221  maxDev 8%  cool 1.18%  eng 93%  stable 2.0s  (250 evals)
+  resume3:hint1 score -0.204  maxDev 29%  cool 0.00%  eng 100%  stable 3.3s  (250 evals)
+  resume1:hint3 score -0.102  maxDev 16%  cool 0.87%  eng 87%  stable 1.8s  (250 evals)
+  resume0:random17 score 0.076  maxDev 20%  cool 0.01%  eng 86%  stable 0.8s  (250 evals)
+  resume4:random11 score 0.172  maxDev 29%  cool 1.28%  eng 100%  stable 0.8s  (250 evals)
+  resume7:hint2 score 0.325  maxDev 33%  cool 0.00%  eng 100%  stable 0.0s  (250 evals)
+  resume5:random22 score 0.331  maxDev 33%  cool 0.01%  eng 100%  stable 0.0s  (250 evals)
+== verification: full fidelity 120s, rounded to ship granularity ==
+  resume2:random7 fail  stableTime 0.0s (max 4.1s)  devs [17% 18% -42%]  cool 0.00%  eng 100%  loop 8.2s
+  resume6:random6 fail  stableTime 0.0s (max 2.3s)  devs [-11% -13% 96%]  cool 2.57%  eng 94%  loop 8.6s
+  resume3:hint1 fail  stableTime 0.0s (max 3.4s)  devs [26% -45% -26%]  cool 0.00%  eng 100%  loop 8.4s
+  resume1:hint3 fail  stableTime 0.0s (max 2.6s)  devs [-99% -52% -56%]  cool 11.51%  eng 78%  loop 8.4s
+  resume0:random17 fail  stableTime 0.0s (max 2.7s)  devs [-57% -59% -3%]  cool 2.93%  eng 88%  loop 8.2s
+  resume4:random11 fail  stableTime 0.0s (max 0.9s)  devs [-39% -41% -13%]  cool 2.53%  eng 100%  loop 8.6s
+  resume7:hint2 fail  stableTime 0.0s (max 0.0s)  devs [-34% -42% -25%]  cool 0.00%  eng 100%  loop 8.9s
+  resume5:random22 fail  stableTime 0.0s (max 0.0s)  devs [-32% -44% -1%]  cool 0.00%  eng 98%  loop 8.2s
+== no candidate passed verification ==
+log written: experiments/logs/preset-search-r2.json

@@ -1,0 +1,20 @@
+== screening: 16 descents, 1920 evaluations @ 200s, 1242s wall ==
+  r:resume2:resume3:hint1 score 0.430  worstDev 43%  coolSpike 0.00%  eng 100%  churn 0.00/s  (120 evals)
+  r:resume0:resume2:random7 score 0.445  worstDev 45%  coolSpike 0.00%  eng 100%  churn 0.00/s  (120 evals)
+  r:resume1:resume6:random6 score 0.479  worstDev 47%  coolSpike 1.08%  eng 92%  churn 0.01/s  (120 evals)
+  r:resume5:resume4:random11 score 0.530  worstDev 53%  coolSpike 0.00%  eng 100%  churn 0.00/s  (120 evals)
+  r:resume6:resume7:hint2 score 0.546  worstDev 55%  coolSpike 0.00%  eng 100%  churn 0.00/s  (120 evals)
+  r:resume7:resume5:random22 score 0.637  worstDev 60%  coolSpike 1.03%  eng 100%  churn 0.03/s  (120 evals)
+  r:resume3:resume1:hint3 score 0.667  worstDev 66%  coolSpike 0.37%  eng 100%  churn 0.01/s  (120 evals)
+  fresh2    score 0.749  worstDev 71%  coolSpike 1.78%  eng 100%  churn 0.03/s  (120 evals)
+== verification: full fidelity 300s, rounded to ship granularity ==
+  r:resume2:resume3:hint1 fail  worstDev 43%  maxStable 3.2s  devs [-11% -3% 21%]  coolSpike 0.00%  eng 100%  loop 8.1s
+  r:resume0:resume2:random7 fail  worstDev 44%  maxStable 2.7s  devs [-35% -23% -9%]  coolSpike 0.00%  eng 100%  loop 8.3s
+  r:resume1:resume6:random6 fail  worstDev 47%  maxStable 2.0s  devs [-26% -28% 9%]  coolSpike 0.79%  eng 93%  loop 8.7s
+  r:resume5:resume4:random11 fail  worstDev 53%  maxStable 0.0s  devs [-30% -18% -49%]  coolSpike 0.00%  eng 100%  loop 8.6s
+  r:resume6:resume7:hint2 fail  worstDev 55%  maxStable 0.2s  devs [-16% -7% -39%]  coolSpike 0.00%  eng 100%  loop 9.1s
+  r:resume7:resume5:random22 fail  worstDev 60%  maxStable 0.0s  devs [-5% -21% -37%]  coolSpike 1.03%  eng 100%  loop 8.2s
+  r:resume3:resume1:hint3 fail  worstDev 65%  maxStable 0.0s  devs [-30% -32% -42%]  coolSpike 0.37%  eng 100%  loop 8.3s
+  fresh2    fail  worstDev 100%  maxStable 0.0s  devs [-100% -55% 41%]  coolSpike 9.04%  eng 97%  loop 8.9s
+== no candidate passed verification ==
+log written: experiments/logs/preset-search-r4.json

@@ -1,0 +1,471 @@
+{
+	"opts": {
+		"seeds": 28,
+		"budget": 180,
+		"screen": 45,
+		"verify": 90,
+		"workers": 2,
+		"rngSeed": 20261007,
+		"top": 8
+	},
+	"startedAt": "2026-10-07T03:50:12.578Z",
+	"results": [
+		{
+			"origin": "random17",
+			"rounded": {
+				"magnets": [
+					{
+						"s": null,
+						"x": -303,
+						"y": -270,
+						"angleDeg": -43,
+						"polarity": -1,
+						"strength": 0.65
+					},
+					{
+						"s": null,
+						"x": -350,
+						"y": 73,
+						"angleDeg": -166,
+						"polarity": 1,
+						"strength": 0.85
+					},
+					{
+						"s": null,
+						"x": -350,
+						"y": -42,
+						"angleDeg": 106,
+						"polarity": 1,
+						"strength": 0.55
+					},
+					{
+						"s": null,
+						"x": 350,
+						"y": 209,
+						"angleDeg": -99,
+						"polarity": -1,
+						"strength": 1.25
+					}
+				],
+				"reflectors": [
+					-148,
+					-23
+				]
+			},
+			"screenScore": 0.27429521472538876,
+			"check": {
+				"devs": [
+					-0.9986192975373052,
+					-0.7116280897549416,
+					-0.9055110017218535
+				],
+				"maxDev": 0.9986192975373052,
+				"cooling": 0.04730707955952841,
+				"stableTime": 0,
+				"engaged": 0.8070175438596491,
+				"period": 9.150000000000006,
+				"pass": false
+			}
+		},
+		{
+			"origin": "hint3",
+			"rounded": {
+				"magnets": [
+					{
+						"s": null,
+						"x": 0,
+						"y": -270,
+						"angleDeg": 90,
+						"polarity": 1,
+						"strength": 1
+					},
+					{
+						"s": null,
+						"x": 350,
+						"y": 65,
+						"angleDeg": 180,
+						"polarity": -1,
+						"strength": 0.9
+					},
+					{
+						"s": null,
+						"x": -21,
+						"y": 270,
+						"angleDeg": -90,
+						"polarity": -1,
+						"strength": 1
+					},
+					{
+						"s": null,
+						"x": -350,
+						"y": -80,
+						"angleDeg": 0,
+						"polarity": -1,
+						"strength": 1
+					}
+				],
+				"reflectors": [
+					-20,
+					-29
+				]
+			},
+			"screenScore": 0.2852907797713575,
+			"check": {
+				"devs": [
+					-0.08932665085717706,
+					-0.4765146728726223,
+					0.449400884541618
+				],
+				"maxDev": 0.4765146728726223,
+				"cooling": 0.07236937397389259,
+				"stableTime": 0,
+				"engaged": 0.8979166666666667,
+				"period": 8.525,
+				"pass": false
+			}
+		},
+		{
+			"origin": "random7",
+			"rounded": {
+				"magnets": [
+					{
+						"s": null,
+						"x": 276,
+						"y": 270,
+						"angleDeg": -37,
+						"polarity": -1,
+						"strength": 1.35
+					},
+					{
+						"s": null,
+						"x": -63,
+						"y": 270,
+						"angleDeg": -55,
+						"polarity": 1,
+						"strength": 1.35
+					},
+					{
+						"s": null,
+						"x": -181,
+						"y": -270,
+						"angleDeg": 25,
+						"polarity": 1,
+						"strength": 0.65
+					},
+					{
+						"s": null,
+						"x": 350,
+						"y": 135,
+						"angleDeg": -84,
+						"polarity": 1,
+						"strength": 1.45
+					}
+				],
+				"reflectors": [
+					-20,
+					-125
+				]
+			},
+			"screenScore": 0.32766410515011146,
+			"check": {
+				"devs": [
+					-0.03862356730619665,
+					0.059530118268656285,
+					0.27395526204969944
+				],
+				"maxDev": 0.27395526204969944,
+				"cooling": 0,
+				"stableTime": 0.5750000000000004,
+				"engaged": 1,
+				"period": 8.55,
+				"pass": false
+			}
+		},
+		{
+			"origin": "hint1",
+			"rounded": {
+				"magnets": [
+					{
+						"s": null,
+						"x": 0,
+						"y": -270,
+						"angleDeg": 90,
+						"polarity": 1,
+						"strength": 0.1
+					},
+					{
+						"s": null,
+						"x": 350,
+						"y": 0,
+						"angleDeg": 180,
+						"polarity": -1,
+						"strength": 0.7
+					},
+					{
+						"s": null,
+						"x": 0,
+						"y": 270,
+						"angleDeg": -90,
+						"polarity": 1,
+						"strength": 1
+					},
+					{
+						"s": null,
+						"x": -350,
+						"y": -80,
+						"angleDeg": 0,
+						"polarity": -1,
+						"strength": 1
+					}
+				],
+				"reflectors": [
+					-20,
+					-29
+				]
+			},
+			"screenScore": 0.36360011262716385,
+			"check": {
+				"devs": [
+					-0.18327969469920768,
+					-0.342711838690716,
+					0.17655114808487982
+				],
+				"maxDev": 0.342711838690716,
+				"cooling": 0,
+				"stableTime": 0,
+				"engaged": 1,
+				"period": 8.675,
+				"pass": false
+			}
+		},
+		{
+			"origin": "random11",
+			"rounded": {
+				"magnets": [
+					{
+						"s": null,
+						"x": 13,
+						"y": -270,
+						"angleDeg": 86,
+						"polarity": 1,
+						"strength": 1
+					},
+					{
+						"s": null,
+						"x": 238,
+						"y": -270,
+						"angleDeg": -70,
+						"polarity": -1,
+						"strength": 1.2
+					},
+					{
+						"s": null,
+						"x": -314,
+						"y": 270,
+						"angleDeg": 93,
+						"polarity": 1,
+						"strength": 0.6
+					},
+					{
+						"s": null,
+						"x": 271,
+						"y": 270,
+						"angleDeg": -93,
+						"polarity": 1,
+						"strength": 1.25
+					}
+				],
+				"reflectors": [
+					58,
+					96
+				]
+			},
+			"screenScore": 0.39368802351238563,
+			"check": {
+				"devs": [
+					-0.4201714598706424,
+					-0.35119162060192155,
+					-0.08156971261539525
+				],
+				"maxDev": 0.4201714598706424,
+				"cooling": 0,
+				"stableTime": 0,
+				"engaged": 1,
+				"period": 8.375,
+				"pass": false
+			}
+		},
+		{
+			"origin": "random22",
+			"rounded": {
+				"magnets": [
+					{
+						"s": null,
+						"x": -350,
+						"y": 187,
+						"angleDeg": 111,
+						"polarity": 1,
+						"strength": 1.2
+					},
+					{
+						"s": null,
+						"x": -350,
+						"y": -72,
+						"angleDeg": -44,
+						"polarity": 1,
+						"strength": 0.7
+					},
+					{
+						"s": null,
+						"x": -273,
+						"y": 270,
+						"angleDeg": -62,
+						"polarity": 1,
+						"strength": 0.7
+					},
+					{
+						"s": null,
+						"x": 72,
+						"y": -270,
+						"angleDeg": -129,
+						"polarity": -1,
+						"strength": 0.95
+					}
+				],
+				"reflectors": [
+					-20,
+					-127
+				]
+			},
+			"screenScore": 0.4302709734599138,
+			"check": {
+				"devs": [
+					-0.46402883135554895,
+					-0.5616947037813689,
+					-0.19845927577913602
+				],
+				"maxDev": 0.5616947037813689,
+				"cooling": 0.00002528993824563256,
+				"stableTime": 0,
+				"engaged": 0.9820175438596491,
+				"period": 8.275000000000002,
+				"pass": false
+			}
+		},
+		{
+			"origin": "random6",
+			"rounded": {
+				"magnets": [
+					{
+						"s": null,
+						"x": -274,
+						"y": 270,
+						"angleDeg": 41,
+						"polarity": -1,
+						"strength": 0.85
+					},
+					{
+						"s": null,
+						"x": 350,
+						"y": 82,
+						"angleDeg": 152,
+						"polarity": -1,
+						"strength": 0.85
+					},
+					{
+						"s": null,
+						"x": -350,
+						"y": 1,
+						"angleDeg": 133,
+						"polarity": 1,
+						"strength": 0.95
+					},
+					{
+						"s": null,
+						"x": 350,
+						"y": 263,
+						"angleDeg": -67,
+						"polarity": -1,
+						"strength": 1.3
+					}
+				],
+				"reflectors": [
+					-166,
+					-29
+				]
+			},
+			"screenScore": 0.44034185720960084,
+			"check": {
+				"devs": [
+					-0.41197063918297894,
+					-0.4206209135148884,
+					0.009527665481097847
+				],
+				"maxDev": 0.4206209135148884,
+				"cooling": 0,
+				"stableTime": 0,
+				"engaged": 1,
+				"period": 9.15,
+				"pass": false
+			}
+		},
+		{
+			"origin": "hint2",
+			"rounded": {
+				"magnets": [
+					{
+						"s": null,
+						"x": 0,
+						"y": -270,
+						"angleDeg": 90,
+						"polarity": 1,
+						"strength": 1
+					},
+					{
+						"s": null,
+						"x": 350,
+						"y": 65,
+						"angleDeg": 180,
+						"polarity": -1,
+						"strength": 0.7
+					},
+					{
+						"s": null,
+						"x": 0,
+						"y": 270,
+						"angleDeg": -90,
+						"polarity": 1,
+						"strength": 0.7
+					},
+					{
+						"s": null,
+						"x": -350,
+						"y": -20,
+						"angleDeg": 0,
+						"polarity": -1,
+						"strength": 1
+					}
+				],
+				"reflectors": [
+					-20,
+					-29
+				]
+			},
+			"screenScore": 0.45547547305539415,
+			"check": {
+				"devs": [
+					-0.42999302111009396,
+					-0.5896977893654416,
+					-0.11645689988051044
+				],
+				"maxDev": 0.5896977893654416,
+				"cooling": 0,
+				"stableTime": 0,
+				"engaged": 1,
+				"period": 8.45,
+				"pass": false
+			}
+		}
+	],
+	"winner": null
+}

@@ -355,9 +355,7 @@
 		}
 		ui.cooling.textContent = (sim.cooling * 100).toFixed(1) + '%';
 		ui.cooling.title = 'Forecast: ' + (sim.predictedCooling * 100).toFixed(1) + '%';
-		ui.status.textContent = paused ? 'SIMULATION PAUSED' : sim.stableTime >= 8 ? 'REACTOR STABLE' : sim.stableTime > 0 ? 'BALANCE ACQUIRED' : 'TUNING REACTOR';
-		ui.light.style.background = sim.stableTime > 0 ? '#70e2d3' : '#edbb70';
-		ui.stability.textContent = sim.stableTime > 0 ? Math.min(8, sim.stableTime).toFixed(1) + ' / 8.0 s stable' : 'Hold balance for 8 seconds';
+		ui.status.style.background = sim.stableTime > 0 ? '#70e2d3' : '#edbb70';
 	}
 	function updateGuideReadout() {
 		if (!ui.debugGuidance.checked) { ui.guideReadout.textContent = ''; return; }

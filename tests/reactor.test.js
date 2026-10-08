@@ -273,3 +273,16 @@ test('targets and cooling zones do not alter particle dynamics', () => {
 	for (let i = 0; i < 300; i++) { a.step(); b.step(); }
 	assert.deepEqual(a.particle, b.particle);
 });
+
+test('skipDisplayForecast leaves live dynamics bit-identical', () => {
+	const a = new Reactor(), b = new Reactor();
+	b.skipDisplayForecast = true;
+	b.predict(true);
+	for (let i = 0; i < 120 * 20; i++) { a.step(); b.step(); }
+	assert.deepEqual(a.particle, b.particle);
+	assert.equal(a.loop.count, b.loop.count);
+	assert.equal(a.loop.period, b.loop.period);
+	assert.equal(a.stableTime, b.stableTime);
+	for (let k = 0; k < a.targets.length; k++) assert.equal(a.targets[k].actual, b.targets[k].actual);
+	assert.equal(a.cooling, b.cooling);
+});

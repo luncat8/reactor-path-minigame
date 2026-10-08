@@ -89,6 +89,10 @@
 
 	class Reactor {
 		constructor() {
+			// Experiment-harness flag: skip the display forecast pass (guided route,
+			// predicted duties). Loop detection, commitment, and live dynamics are
+			// bit-identical; batch searches run ~10x faster with it set.
+			this.skipDisplayForecast = false;
 			this.scratch = { x: 0, y: 0, vx: 0, vy: 0 };
 			this.particle = { x: 0, y: 0, vx: 0, vy: 0 };
 			this.guideForce = { x: 0, y: 0 };
@@ -456,6 +460,7 @@
 			this.forecastInto(this.proposalPath, 0);
 			this.findLoopPair(this.proposalPath);
 			this.commitDecision(force);
+			if (this.skipDisplayForecast) return;
 			this.forecastInto(this.path, this.guideStrength);
 			const live = this.guidanceVector(this.particle, this.guideStrength, this.liveDebug);
 			this.liveForce.x = live.x; this.liveForce.y = live.y;

@@ -1,0 +1,20 @@
+== screening: 8 descents, 1600 evaluations @ 120s, 691s wall ==
+  resume2:resume3:hint1 score 0.035  maxDev 4%  band 100%  drift 0%  cool 0.00%  eng 100%  churn 0.00/s  (200 evals)
+  resume0:resume2:random7 score 0.052  maxDev 5%  band 100%  drift 0%  cool 0.00%  eng 100%  churn 0.00/s  (200 evals)
+  resume4:resume0:random17 score 0.118  maxDev 4%  band 100%  drift 0%  cool 4.84%  eng 100%  churn 0.00/s  (200 evals)
+  resume1:resume6:random6 score 0.126  maxDev 12%  band 100%  drift 0%  cool 0.00%  eng 100%  churn 0.01/s  (200 evals)
+  resume5:resume4:random11 score 0.344  maxDev 33%  band 100%  drift 0%  cool 1.98%  eng 100%  churn 0.00/s  (200 evals)
+  resume6:resume7:hint2 score 0.369  maxDev 37%  band 100%  drift 0%  cool 0.00%  eng 100%  churn 0.00/s  (200 evals)
+  resume3:resume1:hint3 score 0.867  maxDev 35%  band 0%  drift 0%  cool 0.00%  eng 100%  churn 0.02/s  (200 evals)
+  resume7:resume5:random22 score 0.908  maxDev 36%  band 0%  drift 0%  cool 0.87%  eng 100%  churn 0.05/s  (200 evals)
+== verification: full fidelity 180s, rounded to ship granularity ==
+  resume2:resume3:hint1 fail  stableTime 2.4s (max 3.4s)  devs [-22% -18% 3%]  cool 0.00%  eng 100%  loop 8.2s
+  resume0:resume2:random7 fail  stableTime 2.4s (max 3.3s)  devs [-24% -17% -8%]  cool 0.00%  eng 100%  loop 8.1s
+  resume4:resume0:random17 fail  stableTime 0.0s (max 0.0s)  devs [-3% -48% 31%]  cool 5.08%  eng 99%  loop 8.7s
+  resume1:resume6:random6 fail  stableTime 0.0s (max 2.7s)  devs [-42% -39% 20%]  cool 0.00%  eng 100%  loop 9.1s
+  resume5:resume4:random11 fail  stableTime 0.0s (max 0.0s)  devs [-18% -24% -46%]  cool 2.30%  eng 100%  loop 8.7s
+  resume6:resume7:hint2 fail  stableTime 0.0s (max 0.1s)  devs [-28% -17% -47%]  cool 0.00%  eng 100%  loop 8.9s
+  resume3:resume1:hint3 fail  stableTime 0.0s (max 0.0s)  devs [-26% -44% -42%]  cool 0.00%  eng 100%  loop 8.4s
+  resume7:resume5:random22 fail  stableTime 0.0s (max 0.0s)  devs [-47% -52% -20%]  cool 1.11%  eng 99%  loop 8.0s
+== no candidate passed verification ==
+log written: experiments/logs/preset-search-r3.json

@@ -1,0 +1,20 @@
+== screening: 12 descents, 1320 evaluations @ 200s, 879s wall ==
+  r:r:resume2:resume3:hint1 score 0.530  worstDev 47%  wander 6px  coolSpike 0.00%  eng 100%  churn 0.00/s  (110 evals)
+  r:r:resume1:resume6:random6 score 0.625  worstDev 55%  wander 7px  coolSpike 0.00%  eng 100%  churn 0.01/s  (110 evals)
+  r:r:resume0:resume2:random7 score 0.639  worstDev 43%  wander 21px  coolSpike 0.00%  eng 100%  churn 0.00/s  (110 evals)
+  r:r:resume6:resume7:hint2 score 0.660  worstDev 55%  wander 11px  coolSpike 0.00%  eng 100%  churn 0.00/s  (110 evals)
+  r:r:resume5:resume4:random11 score 0.691  worstDev 54%  wander 15px  coolSpike 0.00%  eng 100%  churn 0.00/s  (110 evals)
+  r:r:resume7:resume5:random22 score 0.743  worstDev 65%  wander 6px  coolSpike 0.97%  eng 100%  churn 0.03/s  (110 evals)
+  r:r:resume3:resume1:hint3 score 0.773  worstDev 67%  wander 9px  coolSpike 0.37%  eng 100%  churn 0.01/s  (110 evals)
+  fresh2    score 0.867  worstDev 71%  wander 10px  coolSpike 2.40%  eng 100%  churn 0.03/s  (110 evals)
+== verification: full fidelity 300s, rounded to ship granularity ==
+  r:r:resume2:resume3:hint1 fail  worstDev 47%  maxStable 3.4s  devs [-23% -21% 1%]  coolSpike 0.00%  eng 100%  loop 8.4s
+  r:r:resume1:resume6:random6 fail  worstDev 55%  maxStable 1.2s  devs [15% -52% -32%]  coolSpike 0.00%  eng 100%  loop 9.2s
+  r:r:resume0:resume2:random7 fail  worstDev 43%  maxStable 3.8s  devs [7% 17% -40%]  coolSpike 0.00%  eng 100%  loop 8.2s
+  r:r:resume6:resume7:hint2 fail  worstDev 55%  maxStable 0.1s  devs [-5% -43% -30%]  coolSpike 0.00%  eng 100%  loop 8.9s
+  r:r:resume5:resume4:random11 fail  worstDev 54%  maxStable 1.2s  devs [-18% -22% -14%]  coolSpike 0.00%  eng 100%  loop 8.6s
+  r:r:resume7:resume5:random22 fail  worstDev 65%  maxStable 0.0s  devs [-37% -50% -11%]  coolSpike 0.97%  eng 100%  loop 8.3s
+  r:r:resume3:resume1:hint3 fail  worstDev 67%  maxStable 0.0s  devs [-53% -54% -10%]  coolSpike 0.37%  eng 100%  loop 8.2s
+  fresh2    fail  worstDev 74%  maxStable 1.4s  devs [-21% -46% 16%]  coolSpike 1.81%  eng 99%  loop 8.9s
+== no candidate passed verification ==
+log written: experiments/logs/preset-search-r5.json

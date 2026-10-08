@@ -1,0 +1,20 @@
+== screening: 28 descents, 5017 evaluations @ 45s, 748s wall ==
+  random17  score 0.274  maxDev 26%  cool 2.10%  eng 81%  stable 0.0s  (180 evals)
+  hint3     score 0.285  maxDev 19%  cool 5.35%  eng 100%  stable 0.0s  (180 evals)
+  random7   score 0.328  maxDev 33%  cool 0.00%  eng 100%  stable 0.0s  (180 evals)
+  hint1     score 0.364  maxDev 36%  cool 0.00%  eng 100%  stable 0.0s  (180 evals)
+  random11  score 0.394  maxDev 39%  cool 1.51%  eng 100%  stable 0.0s  (180 evals)
+  random22  score 0.430  maxDev 43%  cool 0.22%  eng 100%  stable 0.0s  (180 evals)
+  random6   score 0.440  maxDev 44%  cool 0.00%  eng 100%  stable 0.0s  (180 evals)
+  hint2     score 0.455  maxDev 46%  cool 0.00%  eng 100%  stable 0.0s  (180 evals)
+== verification: full fidelity 90s, rounded to ship granularity ==
+  random17  fail  stableTime 0.0s  devs [-100% -71% -91%]  cool 4.73%  eng 81%  loop 9.2s
+  hint3     fail  stableTime 0.0s  devs [-9% -48% 45%]  cool 7.24%  eng 90%  loop 8.5s
+  random7   fail  stableTime 0.6s  devs [-4% 6% 27%]  cool 0.00%  eng 100%  loop 8.6s
+  hint1     fail  stableTime 0.0s  devs [-18% -34% 18%]  cool 0.00%  eng 100%  loop 8.7s
+  random11  fail  stableTime 0.0s  devs [-42% -35% -8%]  cool 0.00%  eng 100%  loop 8.4s
+  random22  fail  stableTime 0.0s  devs [-46% -56% -20%]  cool 0.00%  eng 98%  loop 8.3s
+  random6   fail  stableTime 0.0s  devs [-41% -42% 1%]  cool 0.00%  eng 100%  loop 9.2s
+  hint2     fail  stableTime 0.0s  devs [-43% -59% -12%]  cool 0.00%  eng 100%  loop 8.4s
+== no candidate passed verification ==
+log written: experiments/logs/preset-search.json

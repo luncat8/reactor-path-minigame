@@ -2,16 +2,23 @@
 // Robustness validation of the tuned loop-lock guide. Not loaded by the page.
 const { Reactor } = require('../js/reactor.js');
 
-function medianP90(recurrence) {
-	const s = [...recurrence].sort((a, b) => a - b);
-	const pct = f => s.length ? s[Math.min(s.length - 1, Math.floor(s.length * f))] : Infinity;
-	return { median: pct(0.5), p90: pct(0.9) };
+function stats(samples) {
+	const sorted = samples.map(s => s.v).sort((a, b) => a - b);
+	const pct = f => sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * f))] : Infinity;
+	let locked = 0;
+	for (const v of sorted) if (v < 50) locked++;
+	return { median: pct(0.5), p90: pct(0.9), locked: sorted.length ? locked / sorted.length : 0, count: sorted.length };
 }
 
-function run(seconds, mutate) {
+// `windows` slices the recurrence timeline into labelled [from, to) segments, so a
+// perturbation run reports the transient and the recovery separately instead of one
+// aggregate median that mixes the locked, disturbed, and re-locked phases.
+function run(seconds, { mutate, setup, windows } = {}) {
 	const sim = new Reactor();
+	if (setup) setup(sim);
 	sim.predict();
-	const history = [], recurrence = [];
+	const recurrence = [];
+	const history = [];
 	let engaged = 0, samples = 0, maxX = 0, maxY = 0, maxV = 0, finite = true;
 	for (let step = 0; step < 120 * seconds; step++) {
 		if (mutate) mutate(sim, sim.time);
@@ -28,46 +35,85 @@ function run(seconds, mutate) {
 			if (p.vx * q.vx + p.vy * q.vy <= 0) continue;
 			best = Math.min(best, Math.hypot(Math.hypot(p.x - q.x, p.y - q.y), Math.hypot(p.vx - q.vx, p.vy - q.vy) * 0.75));
 		}
-		if (sim.time > 10 && Number.isFinite(best)) recurrence.push(best);
+		if (sim.time > 10 && Number.isFinite(best)) recurrence.push({ t: sim.time, v: best });
 		history.push({ time: sim.time, x: p.x, y: p.y, vx: p.vx, vy: p.vy });
 		while (history.length && sim.time - history[0].time > 15) history.shift();
 		if (sim.time > 10) { samples++; if (sim.liveDebug.engaged) engaged++; }
 	}
-	const m = medianP90(recurrence);
-	let locked = 0; for (const r of recurrence) if (r < 50) locked++;
-	return { median: m.median, p90: m.p90, locked: locked / (recurrence.length || 1), engaged: engaged / samples, maxX, maxY, maxV, finite };
+	const overall = stats(recurrence);
+	const result = { ...overall, engaged: samples ? engaged / samples : 0, maxX, maxY, maxV, finite };
+	if (windows) {
+		result.windows = windows.map(w => ({
+			label: w.label,
+			...stats(recurrence.filter(r => r.t >= w.from && r.t < w.to))
+		}));
+	}
+	return result;
+}
+
+function printStats(label, r) {
+	console.log(`  ${label} recurrence median ${r.median.toFixed(1)} p90 ${r.p90.toFixed(1)}  locked ${(100 * r.locked).toFixed(0)}%`);
 }
 
 console.log('== tuned defaults (strength 0.9, dist 40, dir 30) over 120 s ==');
 const base = run(120);
-console.log(`  recurrence median ${base.median.toFixed(1)} p90 ${base.p90.toFixed(1)}  locked ${(100*base.locked).toFixed(0)}%  engaged ${(100*base.engaged).toFixed(0)}%`);
-console.log(`  bounds |x|<${base.maxX.toFixed(0)} |y|<${base.maxY.toFixed(0)} v<${base.maxV.toFixed(0)}  finite=${base.finite}`);
+printStats('', base);
+console.log(`  engaged ${(100 * base.engaged).toFixed(0)}%  bounds |x|<${base.maxX.toFixed(0)} |y|<${base.maxY.toFixed(0)} v<${base.maxV.toFixed(0)}  finite=${base.finite}`);
 
 console.log('== guidance disabled baseline (strength 0) ==');
-const sim0 = new Reactor(); sim0.guideStrength = 0; sim0.predict();
-const off = (() => { const s = sim0; const rec = []; const hist = []; let eng = 0, n = 0;
-	for (let step = 0; step < 120 * 60; step++) { s.step(); if (step % 3) continue; const p = s.particle; let best = Infinity;
-		for (let i = 0; i < hist.length; i++) { const q = hist[i]; const age = s.time - q.time; if (age < 3 || age > 15) continue; if (p.vx*q.vx+p.vy*q.vy<=0) continue; best = Math.min(best, Math.hypot(Math.hypot(p.x-q.x,p.y-q.y), Math.hypot(p.vx-q.vx,p.vy-q.vy)*0.75)); }
-		if (s.time > 10 && Number.isFinite(best)) rec.push(best); hist.push({time:s.time,x:p.x,y:p.y,vx:p.vx,vy:p.vy}); while (hist.length && s.time-hist[0].time>15) hist.shift();
-	}
-	return medianP90(rec); })();
-console.log(`  recurrence median ${off.median.toFixed(1)} p90 ${off.p90.toFixed(1)} (higher = no lock, expected)`);
+const off = run(60, { setup: sim => { sim.guideStrength = 0; } });
+printStats('', off);
+console.log('  (higher = no lock, expected)');
 
 console.log('== magnet perturbation at t=40: loop should re-acquire ==');
-const pert = run(80, (sim, t) => {
-	if (t >= 40 && t < 40 + 0.02) { sim.magnets[0].x += 60; sim.magnets[1].angle += 0.7; sim.predict(true); }
+// The edit is applied exactly once (a flag, not a time window: the mutate hook runs
+// before every 120 Hz step, so a window applies the same edit several times).
+let edited = false;
+const pert = run(80, {
+	mutate: (sim, t) => {
+		if (edited || t < 40) return;
+		edited = true;
+		sim.magnets[0].x += 60; sim.magnets[1].angle += 0.7; sim.predict(true);
+	},
+	windows: [
+		{ label: 'locked pre-edit t10-40 ', from: 10, to: 40 },
+		{ label: 'transient t40-55       ', from: 40, to: 55 },
+		{ label: 'recovered t55-80       ', from: 55, to: 80 }
+	]
 });
-console.log(`  recurrence median ${pert.median.toFixed(1)} p90 ${pert.p90.toFixed(1)}  locked ${(100*pert.locked).toFixed(0)}%  finite=${pert.finite}`);
+printStats('overall', pert);
+for (const w of pert.windows) printStats(w.label, w);
+console.log(`  finite=${pert.finite}`);
+
+console.log('== boundary probe: one much larger simultaneous edit ==');
+// Two magnets moved at once, twice the documented distance and rotation. The perturbed
+// field no longer offers a lap the pull can complete: expected to churn through rails
+// without re-locking. This is the guide's design boundary, not a regression.
+let largeEdit = false;
+const large = run(100, {
+	mutate: (sim, t) => {
+		if (largeEdit || t < 40) return;
+		largeEdit = true;
+		sim.magnets[0].x += 120; sim.magnets[1].angle += 1.4; sim.predict(true);
+	},
+	windows: [
+		{ label: 'locked pre-edit t10-40 ', from: 10, to: 40 },
+		{ label: 'after edit t55-100     ', from: 55, to: 100 }
+	]
+});
+for (const w of large.windows) printStats(w.label, w);
+console.log(`  finite=${large.finite}`);
 
 console.log('== determinism ==');
 const a = new Reactor(), b = new Reactor();
-a.guideStrength = b.guideStrength = 0.9; a.predict(); b.predict();
+a.predict(); b.predict();
 for (let i = 0; i < 120 * 40; i++) { a.step(); b.step(); }
 console.log(`  identical after 40 s: ${JSON.stringify(a.particle) === JSON.stringify(b.particle) && a.loop.count === b.loop.count}`);
 
-console.log('== stability objective (targets within ±30%, cooling < 1.5%) ==');
-const simS = new Reactor(); simS.guideStrength = 0.9; simS.predict();
+console.log('== stability objective, default field (targets within ±30%, cooling < 1.5%) ==');
+const simS = new Reactor();
+simS.predict();
 for (let i = 0; i < 120 * 60; i++) simS.step();
 console.log(`  stableTime ${simS.stableTime.toFixed(1)} s (>=8 means objective reached)`);
-for (const t of simS.targets) console.log(`  target ${t.name}: actual ${(100*t.actual/t.desired-1).toFixed(0)}% dev`);
-console.log(`  cooling ${(100*simS.cooling).toFixed(2)}%`);
+for (const t of simS.targets) console.log(`  target ${t.name}: live deviation ${((t.actual / t.desired - 1) * 100).toFixed(0)}%`);
+console.log(`  cooling ${(simS.cooling * 100).toFixed(2)}%`);

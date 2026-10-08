@@ -1,0 +1,481 @@
+{
+	"opts": {
+		"seeds": 24,
+		"budget": 200,
+		"screen": 120,
+		"verify": 180,
+		"workers": 2,
+		"rngSeed": 20261007,
+		"top": 8,
+		"resume": "experiments/logs/preset-search-r2.json",
+		"out": "preset-search-r3"
+	},
+	"startedAt": "2026-10-07T04:20:03.760Z",
+	"results": [
+		{
+			"origin": "resume2:resume3:hint1",
+			"rounded": {
+				"magnets": [
+					{
+						"s": null,
+						"x": 0,
+						"y": -270,
+						"angleDeg": 88,
+						"polarity": 1,
+						"strength": 0.1
+					},
+					{
+						"s": null,
+						"x": 350,
+						"y": -60,
+						"angleDeg": 180,
+						"polarity": -1,
+						"strength": 1
+					},
+					{
+						"s": null,
+						"x": 0,
+						"y": 270,
+						"angleDeg": -70,
+						"polarity": 1,
+						"strength": 0.7
+					},
+					{
+						"s": null,
+						"x": -350,
+						"y": -60,
+						"angleDeg": -7,
+						"polarity": -1,
+						"strength": 0.7
+					}
+				],
+				"reflectors": [
+					-20,
+					-29
+				]
+			},
+			"screenScore": 0.03527219076529875,
+			"check": {
+				"devs": [
+					-0.22346444007696487,
+					-0.1844587720794797,
+					0.02797969775567366
+				],
+				"maxDev": 0.22346444007696487,
+				"cooling": 0,
+				"stableTime": 2.3749999999999942,
+				"maxStable": 3.416666666666657,
+				"engaged": 1,
+				"period": 8.2,
+				"pass": false
+			}
+		},
+		{
+			"origin": "resume0:resume2:random7",
+			"rounded": {
+				"magnets": [
+					{
+						"s": null,
+						"x": 350,
+						"y": 264,
+						"angleDeg": -37,
+						"polarity": -1,
+						"strength": 1.35
+					},
+					{
+						"s": null,
+						"x": -70,
+						"y": 270,
+						"angleDeg": -48,
+						"polarity": 1,
+						"strength": 1.95
+					},
+					{
+						"s": null,
+						"x": -181,
+						"y": -270,
+						"angleDeg": 39,
+						"polarity": 1,
+						"strength": 0.65
+					},
+					{
+						"s": null,
+						"x": 350,
+						"y": 135,
+						"angleDeg": -84,
+						"polarity": 1,
+						"strength": 1.45
+					}
+				],
+				"reflectors": [
+					-20,
+					-125
+				]
+			},
+			"screenScore": 0.05172027637073168,
+			"check": {
+				"devs": [
+					-0.23914069848308395,
+					-0.1655674678318485,
+					-0.08149769275652341
+				],
+				"maxDev": 0.23914069848308395,
+				"cooling": 9.517295631214964e-10,
+				"stableTime": 2.4416666666666607,
+				"maxStable": 3.274999999999991,
+				"engaged": 1,
+				"period": 8.1,
+				"pass": false
+			}
+		},
+		{
+			"origin": "resume4:resume0:random17",
+			"rounded": {
+				"magnets": [
+					{
+						"s": null,
+						"x": -303,
+						"y": -270,
+						"angleDeg": -43,
+						"polarity": 1,
+						"strength": 0.65
+					},
+					{
+						"s": null,
+						"x": -350,
+						"y": 13,
+						"angleDeg": -146,
+						"polarity": 1,
+						"strength": 0.55
+					},
+					{
+						"s": null,
+						"x": -350,
+						"y": -62,
+						"angleDeg": 113,
+						"polarity": 1,
+						"strength": 0.55
+					},
+					{
+						"s": null,
+						"x": 350,
+						"y": 209,
+						"angleDeg": -92,
+						"polarity": -1,
+						"strength": 1.25
+					}
+				],
+				"reflectors": [
+					-148,
+					-23
+				]
+			},
+			"screenScore": 0.11824863596852662,
+			"check": {
+				"devs": [
+					-0.025642005015015457,
+					-0.48247543786535385,
+					0.3083762402279149
+				],
+				"maxDev": 0.48247543786535385,
+				"cooling": 0.050799266920131515,
+				"stableTime": 0,
+				"maxStable": 0,
+				"engaged": 0.9876004016064257,
+				"period": 8.674999999999999,
+				"pass": false
+			}
+		},
+		{
+			"origin": "resume1:resume6:random6",
+			"rounded": {
+				"magnets": [
+					{
+						"s": null,
+						"x": -214,
+						"y": 270,
+						"angleDeg": 42,
+						"polarity": -1,
+						"strength": 0.55
+					},
+					{
+						"s": null,
+						"x": 350,
+						"y": 82,
+						"angleDeg": 152,
+						"polarity": -1,
+						"strength": 0.85
+					},
+					{
+						"s": null,
+						"x": -350,
+						"y": 41,
+						"angleDeg": 133,
+						"polarity": 1,
+						"strength": 0.95
+					},
+					{
+						"s": null,
+						"x": 350,
+						"y": 263,
+						"angleDeg": -67,
+						"polarity": -1,
+						"strength": 1.3
+					}
+				],
+				"reflectors": [
+					-166,
+					-29
+				]
+			},
+			"screenScore": 0.1255661438574134,
+			"check": {
+				"devs": [
+					-0.4238281199474049,
+					-0.38990200188780477,
+					0.2041872403525229
+				],
+				"maxDev": 0.4238281199474049,
+				"cooling": 0,
+				"stableTime": 0,
+				"maxStable": 2.6916666666666598,
+				"engaged": 1,
+				"period": 9.125,
+				"pass": false
+			}
+		},
+		{
+			"origin": "resume5:resume4:random11",
+			"rounded": {
+				"magnets": [
+					{
+						"s": null,
+						"x": 13,
+						"y": -270,
+						"angleDeg": 79,
+						"polarity": 1,
+						"strength": 0.7
+					},
+					{
+						"s": null,
+						"x": 238,
+						"y": -270,
+						"angleDeg": -70,
+						"polarity": -1,
+						"strength": 1.2
+					},
+					{
+						"s": null,
+						"x": -314,
+						"y": 270,
+						"angleDeg": 93,
+						"polarity": 1,
+						"strength": 0
+					},
+					{
+						"s": null,
+						"x": 171,
+						"y": 270,
+						"angleDeg": -100,
+						"polarity": 1,
+						"strength": 1.25
+					}
+				],
+				"reflectors": [
+					58,
+					96
+				]
+			},
+			"screenScore": 0.34363106426093554,
+			"check": {
+				"devs": [
+					-0.17697715831742034,
+					-0.2398713038549014,
+					-0.462821413335585
+				],
+				"maxDev": 0.462821413335585,
+				"cooling": 0.022957275757219113,
+				"stableTime": 0,
+				"maxStable": 0,
+				"engaged": 1,
+				"period": 8.65,
+				"pass": false
+			}
+		},
+		{
+			"origin": "resume6:resume7:hint2",
+			"rounded": {
+				"magnets": [
+					{
+						"s": null,
+						"x": 0,
+						"y": -270,
+						"angleDeg": 90,
+						"polarity": 1,
+						"strength": 0.4
+					},
+					{
+						"s": null,
+						"x": 350,
+						"y": 125,
+						"angleDeg": 207,
+						"polarity": -1,
+						"strength": 0.7
+					},
+					{
+						"s": null,
+						"x": 0,
+						"y": 270,
+						"angleDeg": -90,
+						"polarity": 1,
+						"strength": 0.7
+					},
+					{
+						"s": null,
+						"x": -350,
+						"y": -100,
+						"angleDeg": 20,
+						"polarity": -1,
+						"strength": 1
+					}
+				],
+				"reflectors": [
+					-20,
+					-29
+				]
+			},
+			"screenScore": 0.3690870967733161,
+			"check": {
+				"devs": [
+					-0.27621268393377585,
+					-0.16998323304891372,
+					-0.4664077716581574
+				],
+				"maxDev": 0.4664077716581574,
+				"cooling": 0,
+				"stableTime": 0,
+				"maxStable": 0.15,
+				"engaged": 1,
+				"period": 8.925,
+				"pass": false
+			}
+		},
+		{
+			"origin": "resume3:resume1:hint3",
+			"rounded": {
+				"magnets": [
+					{
+						"s": null,
+						"x": 0,
+						"y": -270,
+						"angleDeg": 90,
+						"polarity": 1,
+						"strength": 1
+					},
+					{
+						"s": null,
+						"x": 350,
+						"y": 125,
+						"angleDeg": 173,
+						"polarity": -1,
+						"strength": 0.9
+					},
+					{
+						"s": null,
+						"x": 39,
+						"y": 270,
+						"angleDeg": -90,
+						"polarity": -1,
+						"strength": 1.3
+					},
+					{
+						"s": null,
+						"x": -350,
+						"y": -80,
+						"angleDeg": -18,
+						"polarity": -1,
+						"strength": 1
+					}
+				],
+				"reflectors": [
+					-20,
+					-29
+				]
+			},
+			"screenScore": 0.8669409321557098,
+			"check": {
+				"devs": [
+					-0.25574766163189744,
+					-0.4357709550806127,
+					-0.4157756805084455
+				],
+				"maxDev": 0.4357709550806127,
+				"cooling": 1.1366222589589137e-9,
+				"stableTime": 0,
+				"maxStable": 0,
+				"engaged": 1,
+				"period": 8.374999999999998,
+				"pass": false
+			}
+		},
+		{
+			"origin": "resume7:resume5:random22",
+			"rounded": {
+				"magnets": [
+					{
+						"s": null,
+						"x": -350,
+						"y": 207,
+						"angleDeg": 138,
+						"polarity": 1,
+						"strength": 1.15
+					},
+					{
+						"s": null,
+						"x": -350,
+						"y": -72,
+						"angleDeg": -44,
+						"polarity": 1,
+						"strength": 0.7
+					},
+					{
+						"s": null,
+						"x": -193,
+						"y": 270,
+						"angleDeg": -42,
+						"polarity": 1,
+						"strength": 0.7
+					},
+					{
+						"s": null,
+						"x": 72,
+						"y": -270,
+						"angleDeg": -129,
+						"polarity": -1,
+						"strength": 0.95
+					}
+				],
+				"reflectors": [
+					-20,
+					-127
+				]
+			},
+			"screenScore": 0.9081144189512139,
+			"check": {
+				"devs": [
+					-0.466847431665534,
+					-0.5230924174673213,
+					-0.20075465113259772
+				],
+				"maxDev": 0.5230924174673213,
+				"cooling": 0.011148623292321502,
+				"stableTime": 0,
+				"maxStable": 0,
+				"engaged": 0.9930722891566265,
+				"period": 8,
+				"pass": false
+			}
+		}
+	],
+	"winner": null
+}

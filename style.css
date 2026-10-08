@@ -8,7 +8,7 @@ header { height: 80px; padding: 0 4%; display: flex; align-items: center; justif
 .brand small { color: var(--muted); font-size: 10px; letter-spacing: 2px; border-left: 1px solid var(--line); padding-left: 16px; margin-left: 6px; }
 .edition { font: 10px monospace; color: var(--muted); letter-spacing: 1px; }
 .edition b { margin-left: 22px; color: var(--cyan); font-weight: 400; }
-main { max-width: 1560px; padding: 34px 4% 20px; margin: auto; }
+main { padding: 16px; }
 .intro { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; gap: 20px; }
 .eyebrow { font: 10px monospace; color: var(--cyan); letter-spacing: 1.7px; margin: 0 0 12px; }
 h1 { font-size: clamp(28px, 3vw, 42px); letter-spacing: -1.4px; font-weight: 450; margin: 0 0 10px; }

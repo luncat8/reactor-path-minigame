@@ -56,3 +56,5 @@ checkbox: auto to
 	add new fuel up to number set by player (num at last add button pressed or default num)
 
 fuel circle size: heat<100 then size 100%. heat 100...120 size shrink to 0. this emulate fuel cones gradually lift up to prevent overheat.
+
+calculate game balance against target heat output per time and possible expected results, so player can achieve something within target range. make it more clear visible what to want from player

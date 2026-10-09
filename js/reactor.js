@@ -121,8 +121,11 @@
 	const PLACEMENT_GAP = 15;
 	const PLACEMENT_ATTEMPTS = 60;
 	const MAGNET_CLEARANCE = 40;
-	const FUEL_SEEDS = [{ x: -215, y: -80 }, { x: 20, y: -175 }, { x: 210, y: 65 }];
-	const COOLER_SEEDS = [{ x: -85, y: 80 }, { x: 105, y: -55 }];
+	// Seeded on the default field's settled orbit (see archive/0.1.13-worklog.md) so the
+	// beam crosses every seed every lap: a hands-off reactor already lands inside the
+	// target band, and the player's edits shift output up or down from there.
+	const FUEL_SEEDS = [{ x: -155, y: 230 }, { x: -205, y: 122 }, { x: 127, y: 45 }];
+	const COOLER_SEEDS = [{ x: -104, y: -148 }, { x: 139, y: -225 }];
 
 	// Cone lift: full size up to a full heat buffer, then a linear shrink to zero at the
 	// overheat ceiling. The shrunk size is the circle's gameplay size, not just its look.
@@ -283,9 +286,13 @@
 				{ x: 0, y: 270, angle: -Math.PI / 2, polarity: 1, strength: 1, name: 'M3' },
 				{ x: -350, y: 0, angle: 0, polarity: -1, strength: 1, name: 'M4' }
 			];
+			// Parked on the left/right flanks of the chamber instead of clustered near the
+			// centre, so they read as features of the orbit's sides rather than clutter in
+			// its middle (see archive/0.1.13-worklog.md). R2 grazes the settled orbit once
+			// every lap; both are free to drag anywhere, reshaping which lap locks in.
 			this.reflectors = [
-				{ x: -150, y: -100, angle: -0.35, length: 105, name: 'R1' },
-				{ x: 160, y: 110, angle: -0.5, length: 105, name: 'R2' }
+				{ x: -230, y: -80, angle: -90 * Math.PI / 180, length: 105, name: 'R1' },
+				{ x: 210, y: -130, angle: 95 * Math.PI / 180, length: 105, name: 'R2' }
 			];
 			this.plant.reset();
 			// Auto fuel is a player aid, off by default; the top-up number starts at the
@@ -707,7 +714,7 @@
 		}
 	}
 
-	const api = { Reactor, DT, TAU, FORECAST_PERIOD, circleFraction, reflect, FUEL_LOW, HEAT_MAX, HEAT_OVERHEAT, fuelSizeFactor, TARGET_MIN, TARGET_MAX, MAX_FUEL, MAX_COOLERS };
+	const api = { Reactor, DT, TAU, FORECAST_PERIOD, circleFraction, reflect, FUEL_LOW, HEAT_MAX, HEAT_OVERHEAT, fuelSizeFactor, TARGET_MIN, TARGET_MAX, ON_TARGET_BAND, MAX_FUEL, MAX_COOLERS };
 	if (typeof module !== 'undefined' && module.exports) module.exports = api;
 	root.ReactorCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

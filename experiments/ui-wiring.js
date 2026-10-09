@@ -94,7 +94,7 @@ byId('pause').dispatch('click');
 byId('speed').value = '25';
 byId('speed').dispatch('input');
 byId('reset').dispatch('click');
-assert.equal(byId('speed-value').textContent, '1×', 'reset restores the speed');
+assert.equal(byId('speed-value').textContent, '30×', 'reset restores the default speed');
 assert.equal(byId('guidance-value').textContent, '90%', 'reset restores the guidance strength');
 
 // A field edit while riding transports the held rail instead of re-fitting it.
@@ -110,6 +110,21 @@ const readout = byId('guide-readout').textContent;
 const railAfter = Number(readout.match(/loop ([\d.]+) s/)[1]);
 assert.ok(Math.abs(railAfter - railBefore.period) < 0.25, `a 2° edit keeps the lap (${railBefore.period} → ${railAfter} s)`);
 assert.ok(readout.includes('riding'), 'the beam still rides the transported rail');
+
+// Reflectors drag freely inside the chamber (not clamped to the frame like magnets), and
+// dragging must not also rotate them.
+byId('instruments').children[4].dispatch('click'); // select R1
+const reflectorAngleBefore = byId('angle').value;
+advance(5);
+const readoutBefore = byId('guide-readout').textContent;
+canvas.dispatch('pointerdown', { clientX: 170, clientY: 245, button: 0, pointerId: 1 });
+canvas.dispatch('pointermove', { clientX: 400, clientY: -50, button: 0, pointerId: 1 });
+canvas.dispatch('pointerup', {});
+assert.equal(byId('angle').value, reflectorAngleBefore, 'dragging the reflector body moves it, not rotates it');
+advance(5);
+const readoutAfter = byId('guide-readout').textContent;
+assert.notEqual(readoutAfter, readoutBefore, 'dragging a reflector reshapes the field the beam rides');
+byId('reset').dispatch('click');
 
 // The auto-fuel row wires the checkbox and the number input; the last add press sets the number.
 byId('auto-fuel-count').value = '2';

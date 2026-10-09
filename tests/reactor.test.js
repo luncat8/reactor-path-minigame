@@ -44,19 +44,23 @@ test('integrator reflects a swept grazing hit and the default forecast visibly u
 	sim.integrate(p, DT, { count: 0 }, 0);
 	assert.ok(p.vy < 0 && p.y < 0);
 
+	// The default reflectors sit on the flanks of the settled orbit (not the raw first-lap
+	// trajectory), so their effect shows up once the guide locks the loop, not in a single
+	// unguided forecast pass from the initial state.
 	const reflected = new Reactor(), unobstructed = new Reactor();
-	reflected.guideStrength = unobstructed.guideStrength = 0;
 	unobstructed.reflectors.length = 0;
-	reflected.predict(); unobstructed.predict();
-	let largestDifference = 0;
-	for (let i = 0; i < reflected.path.count; i++) {
-		largestDifference = Math.max(largestDifference,
-			Math.hypot(reflected.path.x[i] - unobstructed.path.x[i], reflected.path.y[i] - unobstructed.path.y[i]));
-	}
-	assert.ok(largestDifference > 20, 'default R2 should create a clear forecast bounce');
-	for (let i = 0; i < 120 * 8; i++) { reflected.step(); unobstructed.step(); }
+	for (let i = 0; i < 120 * 30; i++) { reflected.step(); unobstructed.step(); }
 	assert.ok(Math.hypot(reflected.particle.x - unobstructed.particle.x, reflected.particle.y - unobstructed.particle.y) > 20,
-		'default R2 should change the live particle path');
+		'default reflectors should change the settled live particle path');
+	let hits = reflected.reflectors.map(() => 0);
+	const loop = reflected.loop;
+	for (let i = 0; i < loop.count - 1; i++) {
+		reflected.reflectors.forEach((r, idx) => {
+			const clone = { x: loop.x[i + 1], y: loop.y[i + 1], vx: loop.vx[i + 1], vy: loop.vy[i + 1] };
+			if (reflect(clone, loop.x[i], loop.y[i], loop.step, r)) hits[idx]++;
+		});
+	}
+	assert.ok(hits.some(h => h > 0), 'a default reflector should graze the locked orbit every lap');
 });
 
 test('simulation is deterministic and reset restores the initial prediction', () => {

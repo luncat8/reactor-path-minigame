@@ -1,12 +1,14 @@
 (function () {
 	'use strict';
-	const { Reactor, DT, TAU, FORECAST_PERIOD, FUEL_LOW, HEAT_MAX, TARGET_MAX, MAX_FUEL } = ReactorCore;
+	const { Reactor, DT, TAU, FORECAST_PERIOD, FUEL_LOW, HEAT_MAX, TARGET_MAX, ON_TARGET_BAND, MAX_FUEL } = ReactorCore;
 	// The debug overlay shows the committed loop rail and all three vectors used to judge it:
 	// rail movement at the aim point, current movement, and the resulting matching force.
 	const GUIDE_ARROW_MINIMUM = 0.25;
 	const MOVEMENT_VECTOR_TIME = 0.22;
-	// Output bars share one scale, with headroom above the highest possible target.
-	const OUTPUT_BAR_MAX = 30;
+	// Output bars share one scale with modest headroom above the highest possible target,
+	// so the achievable range (and the target drifting across it) stays legible instead of
+	// shrinking into a sliver at the left of a scale sized for far larger numbers.
+	const OUTPUT_BAR_MAX = 12;
 	const sim = new Reactor(Math.floor(Math.random() * 4294967296));
 	const canvas = document.getElementById('c');
 	const ctx = canvas.getContext('2d');
@@ -23,11 +25,13 @@
 		speed: $('speed'), speedValue: $('speed-value'),
 		clock: $('clock'), status: $('status'),
 		heatFill: $('heat-fill'), heatValue: $('heat-value'), outputFill: $('output-fill'), outputValue: $('output-value'),
-		targetMarker: $('target-marker'), targetValue: $('target-value'), score: $('score-value'), match: $('match-value'),
+		targetMarker: $('target-marker'), targetBand: $('target-band'), targetValue: $('target-value'),
+		deviation: $('deviation-value'), score: $('score-value'), match: $('match-value'),
 		addFuel: $('add-fuel'), addCooler: $('add-cooler'), fuelCount: $('fuel-count'), coolerCount: $('cooler-count'),
 		autoFuel: $('auto-fuel'), autoFuelCount: $('auto-fuel-count')
 	};
-	let selected = 0, paused = false, speed = 1, accumulator = 0, last = 0, lastUI = 0;
+	const DEFAULT_SPEED = 30;
+	let selected = 0, paused = false, speed = DEFAULT_SPEED, accumulator = 0, last = 0, lastUI = 0;
 	let scale = 1, width = 800, height = 650, pixelRatio = 1;
 	const pointer = { x: 0, y: 0 };
 	const drag = { mode: '', target: -1, offsetX: 0, offsetY: 0, lastAngle: 0 };
@@ -125,8 +129,8 @@
 		ui.debugGuidance.checked = false;
 		ui.autoFuel.checked = false;
 		ui.autoFuelCount.value = String(sim.autoFuelTarget);
-		ui.speed.value = 1;
-		setSpeed(1);
+		ui.speed.value = DEFAULT_SPEED;
+		setSpeed(DEFAULT_SPEED);
 		$('guide-legend').classList.remove('visible');
 		ui.guideReadout.classList.remove('visible');
 		syncControls(); updateUI();
@@ -143,6 +147,13 @@
 		if (350 - Math.abs(x) < 270 - Math.abs(y)) x = x < 0 ? -350 : 350;
 		else y = y < 0 ? -270 : 270;
 		item.x = x; item.y = y;
+	}
+	// Reflectors sit inside the chamber rather than riding the frame, so a drag places
+	// them anywhere the chamber interior allows instead of snapping to an edge.
+	const REFLECTOR_MARGIN = 60;
+	function moveReflector(item, x, y) {
+		item.x = Math.max(-350 + REFLECTOR_MARGIN, Math.min(350 - REFLECTOR_MARGIN, x));
+		item.y = Math.max(-270 + REFLECTOR_MARGIN, Math.min(270 - REFLECTOR_MARGIN, y));
 	}
 	function instrumentAt(index) { return index < 4 ? sim.magnets[index] : sim.reflectors[index - 4]; }
 	function containsItem(item, index, x, y) {
@@ -170,7 +181,8 @@
 		if (hit >= 0) selected = hit;
 		canvas.focus(); syncControls();
 		const item = instrument();
-		if (hit === selected && selected < 4) {
+		if (hit === selected) {
+			// Magnets ride the frame; reflectors move freely inside the chamber.
 			drag.mode = 'move';
 			drag.target = selected;
 			drag.offsetX = item.x - pointer.x;
@@ -187,7 +199,8 @@
 		locate(event);
 		const item = instrumentAt(drag.target);
 		if (drag.mode === 'move') {
-			perimeter(item, pointer.x + drag.offsetX, pointer.y + drag.offsetY);
+			if (drag.target < 4) perimeter(item, pointer.x + drag.offsetX, pointer.y + drag.offsetY);
+			else moveReflector(item, pointer.x + drag.offsetX, pointer.y + drag.offsetY);
 			changed(true);
 			return;
 		}
@@ -212,8 +225,17 @@
 		const key = event.key.toLowerCase(), item = instrument();
 		if (key === ' ') { event.preventDefault(); togglePause(); return; }
 		if (key === 'q' || key === 'e') { event.preventDefault(); item.angle += (key === 'q' ? -1 : 1) * Math.PI / 36; changed(true); return; }
-		if (selected >= 4 || !key.startsWith('arrow')) return;
+		if (!key.startsWith('arrow')) return;
 		event.preventDefault();
+		if (selected >= 4) {
+			// Reflectors move freely: step the selection in the pressed direction.
+			const step = 10;
+			const dx = key === 'arrowleft' ? -step : key === 'arrowright' ? step : 0;
+			const dy = key === 'arrowup' ? -step : key === 'arrowdown' ? step : 0;
+			moveReflector(item, item.x + dx, item.y + dy);
+			changed(true);
+			return;
+		}
 		// Move along the perimeter, including around corners.
 		let s = item.y === -270 ? item.x + 350 : item.x === 350 ? 700 + item.y + 270 : item.y === 270 ? 1240 + 350 - item.x : 1940 + 270 - item.y;
 		s = (s + ((key === 'arrowright' || key === 'arrowdown') ? 12 : -12) + 2480) % 2480;
@@ -386,6 +408,9 @@
 		updateGuideReadout();
 		updateReactorUI();
 	}
+	// Bar position for a %/s value on the shared output scale, clamped to the visible track.
+	function barPercent(rate) { return Math.max(0, Math.min(100, 100 * rate / OUTPUT_BAR_MAX)); }
+
 	function updateReactorUI() {
 		const plant = sim.plant;
 		const matching = plant.matching();
@@ -396,10 +421,23 @@
 		ui.heatFill.classList.toggle('overheat', overheat);
 		ui.heatValue.textContent = Math.round(100 * plant.heat / HEAT_MAX) + '%';
 		ui.heatValue.classList.toggle('overheat', overheat);
-		ui.outputFill.style.width = Math.min(100, 100 * plant.outputRate / OUTPUT_BAR_MAX) + '%';
+		ui.outputFill.style.width = barPercent(plant.outputRate) + '%';
 		ui.outputValue.textContent = plant.outputRate.toFixed(1) + ' %/s';
-		ui.targetMarker.style.left = Math.min(100, 100 * plant.target / OUTPUT_BAR_MAX) + '%';
+		// The shaded band is the whole on-target zone (±10% of target), not just the marker
+		// line, so "what the player wants" reads as a zone to sit inside, not a point to hit.
+		const bandLow = barPercent(plant.target * (1 - ON_TARGET_BAND));
+		const bandHigh = barPercent(plant.target * (1 + ON_TARGET_BAND));
+		ui.targetBand.style.left = bandLow + '%';
+		ui.targetBand.style.width = (bandHigh - bandLow) + '%';
+		ui.targetMarker.style.left = barPercent(plant.target) + '%';
 		ui.targetValue.textContent = plant.target.toFixed(1) + ' %/s';
+		// Deviation reads as a signed percentage of the target, with a direction the player
+		// can act on directly: more cooler exposure lowers heat/raises output, and vice versa.
+		const deviationPct = Math.round(100 * (plant.outputRate - plant.target) / plant.target);
+		ui.deviation.textContent = (deviationPct > 0 ? '+' : '') + deviationPct + '%';
+		ui.deviation.classList.toggle('hit', matching);
+		ui.deviation.classList.toggle('low', !matching && deviationPct < 0);
+		ui.deviation.classList.toggle('high', !matching && deviationPct > 0);
 		ui.score.textContent = Math.round(plant.score).toString();
 		ui.match.textContent = Math.round(100 * plant.onTarget / Math.max(plant.elapsed, 1e-9)) + '%';
 		const fuelMax = plant.kinds.F.max, coolerMax = plant.kinds.C.max;
@@ -407,8 +445,12 @@
 		ui.coolerCount.textContent = plant.coolers.length + ' / ' + coolerMax;
 		ui.addFuel.disabled = plant.fuel.length >= fuelMax;
 		ui.addCooler.disabled = plant.coolers.length >= coolerMax;
-		ui.status.textContent = matching ? 'OUTPUT ON TARGET' : 'OUTPUT OFF TARGET';
-		ui.status.style.background = matching ? '#70e2d3' : '#edbb70';
+		// The status badge names the action the player wants to take, not just a verdict:
+		// raise or lower output, or hold here once inside the band.
+		ui.status.classList.remove('hit', 'low', 'high');
+		if (matching) { ui.status.textContent = 'ON TARGET — HOLD HERE'; ui.status.classList.add('hit'); }
+		else if (plant.outputRate < plant.target) { ui.status.textContent = '▲ RAISE OUTPUT ' + Math.abs(deviationPct) + '%'; ui.status.classList.add('low'); }
+		else { ui.status.textContent = '▼ LOWER OUTPUT ' + Math.abs(deviationPct) + '%'; ui.status.classList.add('high'); }
 	}
 	function updateGuideReadout() {
 		if (!ui.debugGuidance.checked) { ui.guideReadout.textContent = ''; return; }
@@ -428,5 +470,6 @@
 		draw(); requestAnimationFrame(frame);
 	}
 	document.addEventListener('visibilitychange', () => { last = 0; accumulator = 0; });
+	setSpeed(DEFAULT_SPEED);
 	syncControls(); updateUI(); resize(); requestAnimationFrame(frame);
 })();
